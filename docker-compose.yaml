@@ -18,6 +18,11 @@
     restart: unless-stopped
     networks:
       - primrose-net
+    secrets:
+      - primrose_jwt
+      - primrose_shared
+    volumes:
+      - primrose_dataprotection:/home/ubuntu/.aspnet/DataProtection-Keys
 
   db:
     image: mcr.microsoft.com/mssql/server:2022-latest
@@ -40,8 +45,16 @@
     networks:
       - primrose-net
 
+secrets:
+  primrose_jwt:
+    external: true
+  primrose_shared:
+    external: true
+
 volumes:
   mssql_data:
+    driver: local
+  primrose_dataprotection:
     driver: local
 
 networks:
