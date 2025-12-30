@@ -1,0 +1,24 @@
+﻿services:
+  be:
+    environment:
+      - ConnectionStrings__Default=Server=db;Database=PagesDb;User=sa;PasswordFile=/run/secrets/db_password
+      - SharedSecretFile=/run/secrets/shared_secret
+      - JwtSecretFile=/run/secrets/jwt_secret
+    secrets:
+      - db_password
+      - shared_secret
+      - jwt_secret
+
+  db:
+    environment:
+      SA_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+  shared_secret:
+    file: ./secrets/shared_secret.txt
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt

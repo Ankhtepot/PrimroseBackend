@@ -1,0 +1,49 @@
+﻿services:
+  primrose-backend:
+    build:
+      context: .
+      dockerfile: PrimroseBackend/Dockerfile
+      args:
+        BUILD_CONFIGURATION: Release
+        APP_UID: 1000
+    env_file:
+      - PrimroseBackend/.env
+    environment:
+      - ASPNETCORE_URLS=http://+:8080
+      - DOTNET_RUNNING_IN_CONTAINER=true
+    ports:
+      - "8080:8080" # Expose only the API port; do not expose DB to host
+    depends_on:
+      - db
+    restart: unless-stopped
+    networks:
+      - primrose-net
+
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    env_file:
+      - PrimroseBackend/.env
+    environment:
+      - ACCEPT_EULA=Y
+      # SA_PASSWORD is provided via env_file (PrimroseBackend/.env)
+    volumes:
+      - mssql_data:/var/opt/mssql
+    healthcheck:
+      # Use a lightweight TCP port check (works without sqlcmd).
+      # Reports healthy when SQL Server is listening on 1433.
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/1433 2>/dev/null && exit 0 || exit 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - primrose-net
+
+volumes:
+  mssql_data:
+    driver: local
+
+networks:
+  primrose-net:
+    driver: bridge

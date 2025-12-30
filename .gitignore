@@ -1,0 +1,98 @@
+# =========================
+# .NET / ASP.NET
+# =========================
+bin/
+obj/
+out/
+
+# User-specific files
+*.user
+*.rsuser
+*.suo
+
+# Rider
+.idea/
+*.sln.iml
+
+# =========================
+# Build artifacts
+# =========================
+*.dll
+*.exe
+*.pdb
+*.cache
+
+# =========================
+# Logs
+# =========================
+*.log
+logs/
+log/
+
+# =========================
+# ASP.NET Core
+# =========================
+appsettings.Development.json
+appsettings.Local.json
+appsettings.*.local.json
+
+# Secrets
+secrets.json
+*.secret
+*.secrets
+
+# HTTPS dev certs
+*.pfx
+*.pem
+
+# =========================
+# Docker
+# =========================
+**/docker-data/
+**/docker-volumes/
+**/mssql-data/
+**/sql-data/
+
+# Docker overrides
+docker-compose.override.yml
+
+# =========================
+# SQL Server
+# =========================
+*.mdf
+*.ldf
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =========================
+# IDEs (other)
+# =========================
+.vscode/
+.vs/
+
+# =========================
+# Tests / coverage
+# =========================
+TestResults/
+coverage/
+*.coverage
+*.trx
+
+# =========================
+# Temporary files
+# =========================
+*.tmp
+*.temp
+*.swp
+*.bak
+
+# =========================
+# Secrets
+# =========================
+.env
+secrets/
