@@ -81,10 +81,17 @@ for entry in "${SECRETS[@]}"; do
   name="${entry%%:*}"
   value="${entry#*:}"
 
-  # Remove existing secret if present
+  # If secret exists and is in use, skip removal and recreate is not possible until service removed; report it
   if docker secret ls --format '{{.Name}}' | grep -q "^${name}$"; then
-    echo "Removing existing secret: $name"
-    docker secret rm "$name" || true
+    # check if secret is in use by a service
+    inuse=$(docker secret inspect "$name" --format '{{json .Spec.Labels}}' 2>/dev/null || true)
+    # Attempt to remove - will fail if in use; handle gracefully
+    echo "Attempting to remove existing secret: $name (may be in use)"
+    if docker secret rm "$name" 2>/dev/null; then
+      echo "Removed existing secret: $name"
+    else
+      echo "Could not remove secret $name (it may be in use). It will be recreated only after services are removed or updated." 
+    fi
   fi
 
   if [ -z "$value" ]; then
@@ -94,8 +101,7 @@ for entry in "${SECRETS[@]}"; do
   fi
 
   # Create secret from value (pass via stdin, no echo)
-  printf '%s' "$value" | docker secret create "$name" - >/dev/null
-  echo "Created secret: $name"
+  printf '%s' "$value" | docker secret create "$name" - >/dev/null && echo "Created secret: $name" || echo "Failed to create secret: $name"
   created+=("$name")
 done
 
