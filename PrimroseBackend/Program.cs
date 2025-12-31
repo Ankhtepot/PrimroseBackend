@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Primitives;
@@ -33,11 +34,62 @@ if (string.IsNullOrWhiteSpace(sharedSecret))
     }
 }
 
+// === Build SQL connection string (handle PasswordFile Docker secret) ===
+string? configuredConn = builder.Configuration.GetConnectionString("DefaultConnection");
+string finalConnection;
+if (!string.IsNullOrWhiteSpace(configuredConn))
+{
+    // If the connection string contains PasswordFile=..., replace it with actual Password from file
+    Match m = Regex.Match(configuredConn, "(?i)PasswordFile=([^;]+)");
+    if (m.Success)
+    {
+        string path = m.Groups[1].Value;
+        // if path is NOT absolute, allow relative to repo root or /run/secrets
+        if (!Path.IsPathRooted(path) && File.Exists(Path.Combine("/run/secrets", path)))
+            path = Path.Combine("/run/secrets", path);
+
+        if (File.Exists(path))
+        {
+            string pwd = File.ReadAllText(path).Trim();
+            // remove PasswordFile=... segment and append Password=...
+            string connNoPwdFile = Regex.Replace(configuredConn, "(?i)PasswordFile=[^;]+;?", "", RegexOptions.None);
+            finalConnection = connNoPwdFile.TrimEnd(';') + ";Password=" + pwd + ";";
+        }
+        else
+        {
+            // fallback: try to read /run/secrets/db_password
+            const string fallback = "/run/secrets/db_password";
+            if (File.Exists(fallback))
+            {
+                string pwd = File.ReadAllText(fallback).Trim();
+                string connNoPwdFile = Regex.Replace(configuredConn, "(?i)PasswordFile=[^;]+;?", "", RegexOptions.None);
+                finalConnection = connNoPwdFile.TrimEnd(';') + ";Password=" + pwd + ";";
+            }
+            else
+            {
+                // leave configuredConn as-is (may fail later)
+                finalConnection = configuredConn;
+            }
+        }
+    }
+    else
+    {
+        // no PasswordFile key: use configured connection string
+        finalConnection = configuredConn;
+    }
+}
+else
+{
+    // build default connection string using /run/secrets/db_password if present
+    string pwd = string.Empty;
+    const string fallback = "/run/secrets/db_password";
+    if (File.Exists(fallback)) pwd = File.ReadAllText(fallback).Trim();
+    finalConnection = $"Server=db;Database=GeneralDb;User=sa;Password={pwd};TrustServerCertificate=true;";
+}
+
 // === SERVICES ===
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")
-                         ??
-                         "Server=db;Database=GeneralDb;User=sa;PasswordFile=/run/secrets/db_password;TrustServerCertificate=true"));
+    options.UseSqlServer(finalConnection));
 
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
 builder.Services.AddEndpointsApiExplorer();
