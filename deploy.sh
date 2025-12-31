@@ -115,6 +115,10 @@ else
   # Build image using Dockerfile so we can tag it with the commit SHA
   $SUDO docker build -f PrimroseBackend/Dockerfile -t "$IMAGE_TAG" .
 
+  # Also tag the image as :latest so the service can reference a stable name
+  echo "[deploy] Tagging image ${IMAGE_TAG} as primrose-primrose-backend:latest"
+  $SUDO docker tag "$IMAGE_TAG" primrose-primrose-backend:latest || true
+
   # Create a temporary compose file that references the new image tag
   TMP_COMPOSE="${SCRIPT_DIR}/docker-compose.deploy.${TAG}.yaml"
   awk -v img="$IMAGE_TAG" '
@@ -125,6 +129,21 @@ else
   echo "[deploy] Deploying stack using temporary compose $TMP_COMPOSE"
   $SUDO docker stack deploy --compose-file "$TMP_COMPOSE" "$STACK_NAME"
   rm -f "$TMP_COMPOSE"
+
+  # Ensure the service tasks all use the exact built image - force update to replace running tasks
+  echo "[deploy] Forcing service ${STACK_NAME}_primrose-backend to use image $IMAGE_TAG"
+  $SUDO docker service update --image "$IMAGE_TAG" "${STACK_NAME}_primrose-backend" --force || true
+
+  # Clean up other tags for this repository to avoid accidental reuse of old images
+  echo "[deploy] Cleaning up other tags for primrose-primrose-backend (non-current)"
+  for TAG_ENTRY in $($SUDO docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | grep '^primrose-primrose-backend:' | awk '{print $1}'); do
+    # skip the two tags we want to keep
+    if [ "$TAG_ENTRY" = "$IMAGE_TAG" ] || [ "$TAG_ENTRY" = "primrose-primrose-backend:latest" ]; then
+      continue
+    fi
+    echo "[deploy] Removing old image tag: $TAG_ENTRY"
+    $SUDO docker rmi "$TAG_ENTRY" || true
+  done
 fi
 
 # 6) Wait for backend service tasks to be running
