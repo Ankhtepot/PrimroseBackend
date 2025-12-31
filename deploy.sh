@@ -116,7 +116,7 @@ else
   $SUDO docker build -f PrimroseBackend/Dockerfile -t "$IMAGE_TAG" .
 
   # Create a temporary compose file that references the new image tag
-  TMP_COMPOSE="/tmp/docker-compose.deploy.${TAG}.yaml"
+  TMP_COMPOSE="${SCRIPT_DIR}/docker-compose.deploy.${TAG}.yaml"
   awk -v img="$IMAGE_TAG" '
     BEGIN{p=0}
     { if ($0 ~ /^\s*image: primrose-primrose-backend/) { sub(/image:.*/, "image: " img); print; next } print }
