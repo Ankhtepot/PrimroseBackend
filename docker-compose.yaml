@@ -1,5 +1,6 @@
 ﻿services:
   primrose-backend:
+    image: primrose-primrose-backend:latest
     build:
       context: .
       dockerfile: PrimroseBackend/Dockerfile
