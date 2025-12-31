@@ -2,8 +2,10 @@
 using System.Security.Claims;
 using System.Text;
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using OtpNet;
+using PrimroseBackend.Data;
 using PrimroseBackend.Data.Dtos;
 using PrimroseBackend.Data.Models;
 using PrimroseBackend.Mediatr;
@@ -39,22 +41,43 @@ public static class PageEndpoints
             .WithName("GetPages");
 
 // === ADMIN (JWT) ===
-        app.MapPost("/api/auth/login", (LoginDto request, IConfiguration config) =>
+        app.MapPost("/api/auth/login", async (LoginDto request, AppDbContext db, IConfiguration config) =>
         {
-            if (request.Username != "admin" || request.Password != "admin123")
+            if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
                 return Results.Unauthorized();
 
-            string jwtSecret = config["JwtSecret"] ?? "";
+            var admin = await db.Admins.SingleOrDefaultAsync(a => a.Username == request.Username);
+            if (admin == null)
+                return Results.Unauthorized();
+
+            bool passwordOk = false;
+            try
+            {
+                passwordOk = BCrypt.Net.BCrypt.Verify(request.Password, admin.PasswordHash);
+            }
+            catch
+            {
+                passwordOk = false;
+            }
+
+            if (!passwordOk)
+                return Results.Unauthorized();
+
+            // get jwt secret from environment (set at startup from docker secrets) or config
+            string? jwtSecret = Environment.GetEnvironmentVariable("JwtSecret") ?? config["JwtSecret"];
+            if (string.IsNullOrWhiteSpace(jwtSecret))
+                throw new InvalidOperationException("JwtSecret is missing");
+
             SymmetricSecurityKey key = new(Encoding.UTF8.GetBytes(jwtSecret));
             SigningCredentials creds = new(key, SecurityAlgorithms.HmacSha256);
 
             JwtSecurityToken token = new(
                 expires: DateTime.Now.AddDays(7),
                 signingCredentials: creds,
-                claims: [new Claim(ClaimTypes.Name, request.Username)]
+                claims: new[] { new Claim(ClaimTypes.Name, request.Username) }
             );
 
-            return Results.Ok(new {Token = new JwtSecurityTokenHandler().WriteToken(token)});
+            return Results.Ok(new { Token = new JwtSecurityTokenHandler().WriteToken(token) });
         });
 
         app.MapGet("/api/pages/admin", async (IMediator mediator) =>

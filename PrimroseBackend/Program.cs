@@ -1,6 +1,7 @@
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Primitives;
 using Microsoft.IdentityModel.Tokens;
 using PrimroseBackend.Controllers;
 using PrimroseBackend.Data;
@@ -47,7 +48,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("React", policy =>
     {
-        var allowed = builder.Configuration["AllowedOrigins"] ?? builder.Configuration["ALLOWED_ORIGINS"] ?? string.Empty;
+        string allowed = builder.Configuration["AllowedOrigins"] ?? builder.Configuration["ALLOWED_ORIGINS"] ?? string.Empty;
         if (string.IsNullOrWhiteSpace(allowed))
         {
             // no origins configured: be restrictive by default (do not allow any origin)
@@ -55,7 +56,7 @@ builder.Services.AddCors(options =>
         }
         else
         {
-            var origins = allowed.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            string[] origins = allowed.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             policy.WithOrigins(origins)
                   .AllowAnyHeader()
                   .AllowAnyMethod()
@@ -122,13 +123,78 @@ app.MapGet("/health", (HttpContext ctx) =>
     if (!string.IsNullOrWhiteSpace(healthToken))
     {
         // require X-Health-Token header to match
-        if (!ctx.Request.Headers.TryGetValue("X-Health-Token", out var val) || val != healthToken)
+        if (!ctx.Request.Headers.TryGetValue("X-Health-Token", out StringValues val) || val != healthToken)
             return Results.StatusCode(StatusCodes.Status403Forbidden);
     }
     return Results.Ok(new { status = "ok" });
 }).RequireCors("Public").WithName("Health");
 
 app.MapPageEndpoints();
+
+// Apply pending EF migrations and seed admin user from Docker secrets (idempotent)
+using (IServiceScope scope = app.Services.CreateScope())
+{
+    try
+    {
+        ILogger<Program> logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        logger.LogInformation("Applying database migrations (if any)");
+        try
+        {
+            db.Database.Migrate();
+            logger.LogInformation("Database migrations applied");
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Database migration failed or skipped");
+        }
+
+        // Read admin credentials from Docker secrets only
+        const string adminUserPath = "/run/secrets/primrose_admin_username";
+        const string adminPassPath = "/run/secrets/primrose_admin_password";
+
+        string? adminUser = null;
+        string? adminPass = null;
+
+        if (File.Exists(adminUserPath) && File.Exists(adminPassPath))
+        {
+            adminUser = File.ReadAllText(adminUserPath).Trim();
+            adminPass = File.ReadAllText(adminPassPath).Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(adminUser) && !string.IsNullOrWhiteSpace(adminPass))
+        {
+            // seed only if admin does not exist
+            if (!db.Admins.Any(a => a.Username == adminUser))
+            {
+                logger.LogInformation("Seeding admin user from Docker secrets: {User}", adminUser);
+                string? hash = BCrypt.Net.BCrypt.HashPassword(adminPass);
+                db.Admins.Add(new PrimroseBackend.Data.Models.Admin
+                {
+                    Username = adminUser,
+                    PasswordHash = hash,
+                    IsAdmin = true
+                });
+                db.SaveChanges();
+                logger.LogInformation("Admin user seeded");
+            }
+            else
+            {
+                logger.LogInformation("Admin user {User} already exists, skipping seed", adminUser);
+            }
+        }
+        else
+        {
+            logger.LogWarning("Admin Docker secrets not found; no admin user was seeded. Expect primrose_admin_username and primrose_admin_password in /run/secrets");
+        }
+    }
+    catch (Exception ex)
+    {
+        ILogger logger = app.Logger;
+        logger.LogError(ex, "Unexpected error during migration/seed");
+    }
+}
 
 app.Run();
 
