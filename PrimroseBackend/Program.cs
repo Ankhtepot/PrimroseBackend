@@ -249,6 +249,6 @@ using (IServiceScope scope = app.Services.CreateScope())
         logger.LogError(ex, "Unexpected error during migration/seed");
     }
 }
-
+// Trigger change - remove
 app.Run();
 
