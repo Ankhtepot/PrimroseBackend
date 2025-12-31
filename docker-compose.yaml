@@ -24,7 +24,7 @@
       - primrose_shared
       - db_password
     volumes:
-      - primrose_dataprotection:/home/ubuntu/.aspnet/DataProtection-Keys
+      - primrose_dataprotection:/home/app/.aspnet/DataProtection-Keys
 
   db:
     image: mcr.microsoft.com/mssql/server:2022-latest
