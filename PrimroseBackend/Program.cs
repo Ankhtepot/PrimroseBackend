@@ -2,9 +2,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Primitives;
 using Microsoft.IdentityModel.Tokens;
-using PrimroseBackend.Controllers;
 using PrimroseBackend.Data;
 using Microsoft.AspNetCore.HttpOverrides; // added for forwarded headers
 
@@ -173,10 +171,6 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
-app.UseAuthentication();
-app.UseAuthorization();
-
 // Use the React CORS policy as the default for API endpoints (unless overridden per-endpoint)
 app.UseCors("React");
 
@@ -191,19 +185,74 @@ if (string.IsNullOrWhiteSpace(healthToken))
     }
 }
 
-// lightweight health endpoint for readiness and monitoring (allow any origin or require token if set)
-app.MapGet("/health", (HttpContext ctx) =>
+// Map a dedicated branch for /health before HTTPS redirection so probes don't get 308 redirects
+app.Map("/health", branch =>
 {
-    if (!string.IsNullOrWhiteSpace(healthToken))
-    {
-        // require X-Health-Token header to match
-        if (!ctx.Request.Headers.TryGetValue("X-Health-Token", out StringValues val) || val != healthToken)
-            return Results.StatusCode(StatusCodes.Status403Forbidden);
-    }
-    return Results.Ok(new { status = "ok" });
-}).RequireCors("Public").WithName("Health");
+    // Allow public CORS for health checks
+    branch.UseCors("Public");
 
-app.MapPageEndpoints();
+    // Simple in-memory IP-based rate limiter (per-minute window)
+    // Note: this is intentionally small and in-process; for multi-node clusters use a distributed store.
+    var rateLimitStore = new System.Collections.Concurrent.ConcurrentDictionary<string, (int Count, DateTime WindowStart)>();
+    const int LIMIT = 10; // requests per window
+    TimeSpan WINDOW = TimeSpan.FromMinutes(1);
+
+    branch.Run(async ctx =>
+    {
+        // If a health token is configured, require it via X-Health-Token header
+        if (!string.IsNullOrWhiteSpace(healthToken))
+        {
+            if (!ctx.Request.Headers.TryGetValue("X-Health-Token", out var val) || val != healthToken)
+            {
+                ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return;
+            }
+        }
+
+        // Determine client identifier (prefer X-Forwarded-For then connection remote IP)
+        string client = "unknown";
+        if (ctx.Request.Headers.TryGetValue("X-Forwarded-For", out var xff) && !string.IsNullOrWhiteSpace(xff))
+        {
+            // X-Forwarded-For can contain a comma-separated list; take first
+            client = xff.ToString().Split(',')[0].Trim();
+        }
+        else if (ctx.Connection.RemoteIpAddress != null)
+        {
+            client = ctx.Connection.RemoteIpAddress.ToString();
+        }
+
+        // rate limit only when no health token is configured OR even when token present? policy: always apply
+        var now = DateTime.UtcNow;
+        var entry = rateLimitStore.AddOrUpdate(client,
+            addValueFactory: _ => (1, now),
+            updateValueFactory: (_, state) =>
+            {
+                var (count, windowStart) = state;
+                if (now - windowStart > WINDOW)
+                {
+                    // reset window
+                    return (1, now);
+                }
+                return (count + 1, windowStart);
+            });
+
+        if (entry.Count > LIMIT)
+        {
+            ctx.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+            ctx.Response.Headers["Retry-After"] = "60"; // seconds
+            return;
+        }
+
+        ctx.Response.ContentType = "application/json";
+        await ctx.Response.WriteAsync("{\"status\":\"ok\"}");
+    });
+});
+
+app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
+
+// MapPageEndpoints() is removed in this version
 
 // Apply pending EF migrations and seed admin user from Docker secrets (idempotent)
 using (IServiceScope scope = app.Services.CreateScope())

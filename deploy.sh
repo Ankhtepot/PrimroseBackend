@@ -112,10 +112,25 @@ else
   IMAGE_TAG="primrose-primrose-backend:${TAG}"
   echo "[deploy] Building image tag $IMAGE_TAG"
 
-  # Build image using Dockerfile so we can tag it with the commit SHA
-  $SUDO docker build -f PrimroseBackend/Dockerfile -t "$IMAGE_TAG" .
+  # Prefer docker compose build (uses the same build context and args as compose). Fall back to docker build.
+  if $SUDO docker compose build primrose-backend >/dev/null 2>&1; then
+    echo "[deploy] docker compose build succeeded"
+    # try to find image created by compose
+    BUILT_ID=$($SUDO docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | awk '/^primrose-primrose-backend:latest /{print $2; exit}') || true
+    if [ -n "$BUILT_ID" ]; then
+      echo "[deploy] Found image from docker compose: $BUILT_ID"
+      # tag it with commit SHA
+      $SUDO docker tag "$BUILT_ID" "$IMAGE_TAG" || true
+    else
+      echo "[deploy] docker compose built but primrose-primrose-backend:latest not found; falling back to docker build"
+      $SUDO docker build -f PrimroseBackend/Dockerfile -t "$IMAGE_TAG" .
+    fi
+  else
+    echo "[deploy] docker compose build failed or not available; using docker build"
+    $SUDO docker build -f PrimroseBackend/Dockerfile -t "$IMAGE_TAG" .
+  fi
 
-  # Also tag the image as :latest so the service can reference a stable name
+  # Ensure :latest tag also exists
   echo "[deploy] Tagging image ${IMAGE_TAG} as primrose-primrose-backend:latest"
   $SUDO docker tag "$IMAGE_TAG" primrose-primrose-backend:latest || true
 
