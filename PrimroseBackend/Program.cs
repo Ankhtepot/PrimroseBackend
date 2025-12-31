@@ -44,6 +44,8 @@ if (!string.IsNullOrWhiteSpace(configuredConn))
     if (m.Success)
     {
         string path = m.Groups[1].Value;
+        // trim surrounding quotes if present
+        path = path.Trim('"', '\'');
         // if path is NOT absolute, allow relative to repo root or /run/secrets
         if (!Path.IsPathRooted(path) && File.Exists(Path.Combine("/run/secrets", path)))
             path = Path.Combine("/run/secrets", path);

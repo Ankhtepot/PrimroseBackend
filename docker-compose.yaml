@@ -22,6 +22,7 @@
     secrets:
       - primrose_jwt
       - primrose_shared
+      - db_password
     volumes:
       - primrose_dataprotection:/home/ubuntu/.aspnet/DataProtection-Keys
 
@@ -50,6 +51,8 @@ secrets:
   primrose_jwt:
     external: true
   primrose_shared:
+    external: true
+  db_password:
     external: true
 
 volumes:
