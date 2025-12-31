@@ -60,4 +60,5 @@ volumes:
 
 networks:
   primrose-net:
-    driver: bridge
+    driver: overlay
+    attachable: true

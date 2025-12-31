@@ -1,4 +1,9 @@
-﻿List docker secrets:
+﻿Pull latest:
+```shell
+git pull origin master
+```
+
+List docker secrets:
 ```shell
 docker secret ls
 ```
