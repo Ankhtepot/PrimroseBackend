@@ -195,6 +195,6 @@ using (IServiceScope scope = app.Services.CreateScope())
         logger.LogError(ex, "Unexpected error during migration/seed");
     }
 }
-// Temp to trigger pull, remove asap
+
 app.Run();
 
