@@ -6,8 +6,25 @@ using Microsoft.Extensions.Primitives;
 using Microsoft.IdentityModel.Tokens;
 using PrimroseBackend.Controllers;
 using PrimroseBackend.Data;
+using Microsoft.AspNetCore.HttpOverrides; // added for forwarded headers
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+
+// Configure forwarded headers so app correctly detects original scheme/IP when behind proxy/load-balancer
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    // Clear defaults so Docker/Nginx reverse proxies aren't rejected when running in unknown network environments
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
+// Configure HTTPS redirection defaults (useful when TLS terminates at a reverse proxy)
+builder.Services.AddHttpsRedirection(options =>
+{
+    options.HttpsPort = 443;
+    options.RedirectStatusCode = StatusCodes.Status308PermanentRedirect;
+});
 
 // Load secrets from Docker secrets files if env vars are missing
 string? jwtSecret = builder.Configuration["JwtSecret"];
@@ -145,6 +162,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 WebApplication app = builder.Build();
+
+// Ensure forwarded headers middleware runs early so HTTPS redirection and auth see correct scheme
+app.UseForwardedHeaders();
 
 // === SWAGGER ===
 if (app.Environment.IsDevelopment())
