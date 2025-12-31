@@ -33,7 +33,7 @@ docker info --format '{{.Swarm.LocalNodeState}}'
 ### Deploy stack (Swarm) using the convenience script (recommended):
 ```shell
 # run from repo root on the server
-sudo ./deploy.sh
+sudo bash /srv/primrose/deploy.sh
 ```
 
 ### Check Stack
