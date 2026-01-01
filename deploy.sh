@@ -151,13 +151,34 @@ else
 
   # Clean up other tags for this repository to avoid accidental reuse of old images
   echo "[deploy] Cleaning up other tags for primrose-primrose-backend (non-current)"
-  for TAG_ENTRY in $($SUDO docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | grep '^primrose-primrose-backend:' | awk '{print $1}'); do
+  # iterate over repository tags and ids, skip current and latest
+  $SUDO docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | awk '/^primrose-primrose-backend:/{print $1" "$2}' | while read -r TAG_ENTRY IMG_ID; do
     # skip the two tags we want to keep
     if [ "$TAG_ENTRY" = "$IMAGE_TAG" ] || [ "$TAG_ENTRY" = "primrose-primrose-backend:latest" ]; then
       continue
     fi
+    echo "[deploy] Considering old image tag: $TAG_ENTRY (id: $IMG_ID)"
+
+    # Check if any container references this image id (docker inspect .Image returns full id); use substring match
+    IN_USE=0
+    CONTAINERS=$($SUDO docker ps -a -q || true)
+    if [ -n "$CONTAINERS" ]; then
+      for CID in $CONTAINERS; do
+        CID_IMG=$($SUDO docker inspect --format '{{.Image}}' "$CID" 2>/dev/null || true)
+        if echo "$CID_IMG" | grep -q "$IMG_ID"; then
+          IN_USE=1
+          break
+        fi
+      done
+    fi
+
+    if [ "$IN_USE" -eq 1 ]; then
+      echo "[deploy] Skipping removal of $TAG_ENTRY - image is used by a container"
+      continue
+    fi
+
     echo "[deploy] Removing old image tag: $TAG_ENTRY"
-    $SUDO docker rmi "$TAG_ENTRY" || true
+    $SUDO docker rmi "$TAG_ENTRY" || echo "[deploy] Failed to remove $TAG_ENTRY - it may be in use or already removed"
   done
 fi
 
