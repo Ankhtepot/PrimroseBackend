@@ -248,7 +248,18 @@ app.Map("/health", branch =>
     });
 });
 
-app.UseHttpsRedirection();
+// Make HTTPS redirection conditional so local direct HTTP requests (curl tests) don't get 308
+// Set ENABLE_HTTPS_REDIRECT=true in production / reverse-proxy environments where TLS is required
+var enableHttpsRedirect = builder.Configuration["ENABLE_HTTPS_REDIRECT"];
+if (string.Equals(enableHttpsRedirect, "true", StringComparison.OrdinalIgnoreCase) || app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
+else
+{
+    app.Logger.LogInformation("HTTPS redirection is disabled. To enable, set ENABLE_HTTPS_REDIRECT=true in configuration or environment.");
+}
+
 app.UseAuthentication();
 app.UseAuthorization();
 
