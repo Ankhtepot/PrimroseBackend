@@ -30,75 +30,19 @@ STACK_NAME="primrose"
 SERVICE_NAME="${STACK_NAME}_primrose-backend"
 ENV_PATH="${SCRIPT_DIR}/PrimroseBackend/.env"
 
+# --- new GC config (safe image garbage-collection) -------------------------
+# CLEAN_OLD_IMAGES: if 'false' will skip automatic GC. Default: true
+# GC_DRY_RUN: if 'true' will only show what would be removed (no deletion). Default: false
+# You can override these by setting env vars before running the script, e.g.
+#   CLEAN_OLD_IMAGES=false ./deploy.sh
+#   GC_DRY_RUN=true ./deploy.sh
+CLEAN_OLD_IMAGES="${CLEAN_OLD_IMAGES:-true}"
+GC_DRY_RUN="${GC_DRY_RUN:-false}"
+# ---------------------------------------------------------------------------
+
 echo "[deploy] Working directory: $SCRIPT_DIR"
 
-# 1) Update repository: fetch and check for changes
-if [ -d .git ]; then
-  echo "[deploy] Fetching origin/master"
-  git fetch origin master
-  REMOTE_REV=$(git rev-parse --verify origin/master 2>/dev/null || true)
-  LOCAL_REV=$(git rev-parse --verify HEAD 2>/dev/null || true)
-  echo "[deploy] local=$LOCAL_REV remote=$REMOTE_REV"
-  if [ "$LOCAL_REV" = "$REMOTE_REV" ]; then
-    echo "[deploy] No changes in origin/master"
-    # If service exists and is healthy, do nothing
-    if docker service ls --format '{{.Name}}' 2>/dev/null | grep -q "^${SERVICE_NAME}$"; then
-      RUNNING_COUNT=$(docker service ps --filter desired-state=running "${SERVICE_NAME}" --format '{{.CurrentState}}' | grep -c "Running" || true)
-      if [ "$RUNNING_COUNT" -ge 1 ]; then
-        echo "[deploy] Service ${SERVICE_NAME} already running and healthy. No deploy necessary."
-        exit 0
-      else
-        echo "[deploy] Service ${SERVICE_NAME} not running; proceeding to deploy."
-      fi
-    else
-      echo "[deploy] Service ${SERVICE_NAME} not found; proceeding to deploy."
-    fi
-  else
-    echo "[deploy] origin/master has updates; will deploy new image"
-    git reset --hard origin/master
-  fi
-else
-  echo "[deploy] No git repository found in $SCRIPT_DIR - skipping git pull"
-fi
-
-# 2) Ensure Docker Swarm is active
-SWARM_STATE=$(docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null || echo "inactive")
-if [ "$SWARM_STATE" != "active" ]; then
-  echo "[deploy] Docker Swarm not active - initializing single-node swarm"
-  $SUDO docker swarm init --advertise-addr $(hostname -I | awk '{print $1}')
-else
-  echo "[deploy] Swarm is active"
-fi
-
-# 3) Ensure required external secrets exist (create from .env if possible)
-create_secret_if_missing() {
-  name="$1"; env_key="$2"
-  if docker secret ls --format '{{.Name}}' | grep -q "^${name}$"; then
-    echo "[deploy] secret ${name} already exists"
-    return 0
-  fi
-  if [ -f "$ENV_PATH" ]; then
-    val=$(grep -E "^${env_key}=" "$ENV_PATH" | sed -E "s/^${env_key}=//") || true
-    if [ -n "$val" ]; then
-      echo "[deploy] Creating secret ${name} from ${ENV_PATH}:${env_key}"
-      printf '%s' "$val" | $SUDO docker secret create "$name" -
-      return 0
-    fi
-  fi
-  echo "[deploy] secret ${name} missing and no ${env_key} found in .env - please create it manually"
-  return 1
-}
-
-# Try to create primrose_jwt and primrose_shared if missing
-create_secret_if_missing primrose_jwt JwtSecret || true
-create_secret_if_missing primrose_shared SharedSecret || true
-# primrose_health_token optional - do not auto-create
-
-# 4) Remove any old non-swarm network with the same name to avoid conflicts
-if docker network ls --filter name=${STACK_NAME}_primrose-net -q | grep -q .; then
-  echo "[deploy] Removing local network ${STACK_NAME}_primrose-net to allow overlay creation"
-  $SUDO docker network rm ${STACK_NAME}_primrose-net 2>/dev/null || true
-fi
+# ...existing code...
 
 # 5) Build backend image and deploy only if updates were detected or service missing
 # Determine current HEAD (after possible reset above)
@@ -151,35 +95,61 @@ else
 
   # Clean up other tags for this repository to avoid accidental reuse of old images
   echo "[deploy] Cleaning up other tags for primrose-primrose-backend (non-current)"
-  # iterate over repository tags and ids, skip current and latest
-  $SUDO docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | awk '/^primrose-primrose-backend:/{print $1" "$2}' | while read -r TAG_ENTRY IMG_ID; do
-    # skip the two tags we want to keep
-    if [ "$TAG_ENTRY" = "$IMAGE_TAG" ] || [ "$TAG_ENTRY" = "primrose-primrose-backend:latest" ]; then
-      continue
-    fi
-    echo "[deploy] Considering old image tag: $TAG_ENTRY (id: $IMG_ID)"
 
-    # Check if any container references this image id (docker inspect .Image returns full id); use substring match
-    IN_USE=0
-    CONTAINERS=$($SUDO docker ps -a -q || true)
-    if [ -n "$CONTAINERS" ]; then
-      for CID in $CONTAINERS; do
-        CID_IMG=$($SUDO docker inspect --format '{{.Image}}' "$CID" 2>/dev/null || true)
-        if echo "$CID_IMG" | grep -q "$IMG_ID"; then
-          IN_USE=1
-          break
-        fi
-      done
+  # New: safe GC function - respects CLEAN_OLD_IMAGES and GC_DRY_RUN
+  cleanup_old_images() {
+    if [ "${CLEAN_OLD_IMAGES}" = "false" ]; then
+      echo "[deploy] CLEAN_OLD_IMAGES=false - skipping image GC"
+      return 0
     fi
 
-    if [ "$IN_USE" -eq 1 ]; then
-      echo "[deploy] Skipping removal of $TAG_ENTRY - image is used by a container"
-      continue
-    fi
+    echo "[deploy] GC_DRY_RUN=${GC_DRY_RUN}"
 
-    echo "[deploy] Removing old image tag: $TAG_ENTRY"
-    $SUDO docker rmi "$TAG_ENTRY" || echo "[deploy] Failed to remove $TAG_ENTRY - it may be in use or already removed"
-  done
+    # list tags and IDs for the repository
+    $SUDO docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | awk '/^primrose-primrose-backend:/{print $1" "$2}' | while read -r TAG_ENTRY IMG_ID; do
+      # skip the two tags we want to keep
+      if [ "$TAG_ENTRY" = "$IMAGE_TAG" ] || [ "$TAG_ENTRY" = "primrose-primrose-backend:latest" ]; then
+        continue
+      fi
+      echo "[deploy][gc] Considering old image tag: $TAG_ENTRY (id: $IMG_ID)"
+
+      # Check if any container references this image id (docker inspect .Image returns full id); use substring match
+      IN_USE=0
+      CONTAINERS=$($SUDO docker ps -a -q || true)
+      if [ -n "$CONTAINERS" ]; then
+        for CID in $CONTAINERS; do
+          CID_IMG=$($SUDO docker inspect --format '{{.Image}}' "$CID" 2>/dev/null || true)
+          if echo "$CID_IMG" | grep -q "$IMG_ID"; then
+            IN_USE=1
+            break
+          fi
+        done
+      fi
+
+      if [ "$IN_USE" -eq 1 ]; then
+        echo "[deploy][gc] Skipping removal of $TAG_ENTRY - image is used by a container"
+        continue
+      fi
+
+      if [ "${GC_DRY_RUN}" = "true" ]; then
+        echo "[deploy][gc] DRY-RUN: would remove tag $TAG_ENTRY"
+        continue
+      fi
+
+      echo "[deploy][gc] Removing old image tag: $TAG_ENTRY"
+      # attempt removal and log failures; do not force by default
+      if $SUDO docker rmi "$TAG_ENTRY" 2>/tmp/deploy_rmi_err || true; then
+        echo "[deploy][gc] Removed $TAG_ENTRY"
+      else
+        RMI_ERR=$(cat /tmp/deploy_rmi_err || true)
+        echo "[deploy][gc] Failed to remove $TAG_ENTRY: $RMI_ERR"
+        # If removal failed because image is still referenced, keep it and continue
+      fi
+    done
+  }
+
+  # run GC
+  cleanup_old_images
 fi
 
 # 6) Wait for backend service tasks to be running
