@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using PrimroseBackend.Data;
 using Microsoft.AspNetCore.HttpOverrides; // added for forwarded headers
+using PrimroseBackend.Controllers; // register minimal API endpoints (MapPageEndpoints)
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -263,7 +264,7 @@ else
 app.UseAuthentication();
 app.UseAuthorization();
 
-// MapPageEndpoints() is removed in this version
+app.MapPageEndpoints();
 
 // Apply pending EF migrations and seed admin user from Docker secrets (idempotent)
 using (IServiceScope scope = app.Services.CreateScope())
