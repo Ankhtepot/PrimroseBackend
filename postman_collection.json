@@ -1,0 +1,272 @@
+﻿{
+	"info": {
+		"_postman_id": "b78d2b2c-63e2-4c9f-863a-8677c7f763a1",
+		"name": "Primrose Backend API",
+		"description": "Collection for testing Primrose Backend endpoints.\n\n### Authentication\n- **JWT Auth**: Used for admin endpoints. Obtain token via `/api/auth/login` and it will be stored in the `jwt_token` variable.\n- **TOTP Auth**: Used for the public `/api/pages` endpoint. Uses the `X-App-Auth` header. Note: Postman doesn't natively generate TOTP codes without scripts or external libraries, so you'll need to provide it manually in the variable or use the provided pre-request script if your environment supports it (requires `otpauth` or similar, which standard Postman doesn't have, so it's best to enter it manually or use a helper).\n- **Health Token**: Used for `/health` via `X-Health-Token` header.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Auth",
+			"item": [
+				{
+					"name": "Admin Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = pm.response.json();",
+									"if (jsonData.token) {",
+									"    pm.collectionVariables.set(\"jwt_token\", jsonData.token);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"{{admin_username}}\",\n    \"password\": \"{{admin_password}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"login"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Public",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-Health-Token",
+								"value": "{{health_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"health"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Pages (TOTP)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "X-App-Auth",
+								"value": "{{totp_code}}",
+								"description": "6-digit TOTP code generated from SharedSecret",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/pages",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"pages"
+							]
+						},
+						"description": "Requires TOTP code in X-App-Auth header. You can use a tool like Google Authenticator or an online TOTP generator with your `SharedSecret`."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Admin (JWT)",
+			"item": [
+				{
+					"name": "Get Pages (Admin)",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{jwt_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/pages/admin",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"pages",
+								"admin"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Page",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{jwt_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"description\": \"My New Page\",\n    \"url\": \"https://example.com\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/pages",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"pages"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Page",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{jwt_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"id\": 1,\n    \"description\": \"Updated Description\",\n    \"url\": \"https://updated-example.com\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/pages/1",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"pages",
+								"1"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080",
+			"type": "string"
+		},
+		{
+			"key": "admin_username",
+			"value": "admin",
+			"type": "string"
+		},
+		{
+			"key": "admin_password",
+			"value": "password",
+			"type": "string"
+		},
+		{
+			"key": "jwt_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "health_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "totp_code",
+			"value": "123456",
+			"type": "string"
+		}
+	]
+}
