@@ -1,11 +1,11 @@
 using System.Text;
-using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using PrimroseBackend.Data;
 using Microsoft.AspNetCore.HttpOverrides; // added for forwarded headers
 using PrimroseBackend.Controllers; // register minimal API endpoints (MapPageEndpoints)
+using static PrimroseBackend.Configuration.EnvironmentInitialization;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -25,85 +25,12 @@ builder.Services.AddHttpsRedirection(options =>
     options.RedirectStatusCode = StatusCodes.Status308PermanentRedirect;
 });
 
-// Load secrets from Docker secrets files if env vars are missing
-string? jwtSecret = builder.Configuration["JwtSecret"];
-if (string.IsNullOrWhiteSpace(jwtSecret))
-{
-    const string jwtSecretPath = "/run/secrets/primrose_jwt";
-    if (File.Exists(jwtSecretPath))
-    {
-        jwtSecret = File.ReadAllText(jwtSecretPath).Trim();
-        if (!string.IsNullOrWhiteSpace(jwtSecret))
-            Environment.SetEnvironmentVariable("JwtSecret", jwtSecret);
-    }
-}
-
-string? sharedSecret = builder.Configuration["SharedSecret"];
-if (string.IsNullOrWhiteSpace(sharedSecret))
-{
-    const string sharedSecretPath = "/run/secrets/primrose_shared";
-    if (File.Exists(sharedSecretPath))
-    {
-        sharedSecret = File.ReadAllText(sharedSecretPath).Trim();
-        if (!string.IsNullOrWhiteSpace(sharedSecret))
-            Environment.SetEnvironmentVariable("SharedSecret", sharedSecret);
-    }
-}
+string? jwtSecret = ResolveJwtSecret(builder);
+ResolveHealthToken(builder);
+LoadSharedSecretFromDocker(builder);
 
 // === Build SQL connection string (handle PasswordFile Docker secret) ===
-string? configuredConn = builder.Configuration.GetConnectionString("DefaultConnection");
-string finalConnection;
-if (!string.IsNullOrWhiteSpace(configuredConn))
-{
-    // If the connection string contains PasswordFile=..., replace it with actual Password from file
-    Match m = Regex.Match(configuredConn, "(?i)PasswordFile=([^;]+)");
-    if (m.Success)
-    {
-        string path = m.Groups[1].Value;
-        // trim surrounding quotes if present
-        path = path.Trim('"', '\'');
-        // if path is NOT absolute, allow relative to repo root or /run/secrets
-        if (!Path.IsPathRooted(path) && File.Exists(Path.Combine("/run/secrets", path)))
-            path = Path.Combine("/run/secrets", path);
-
-        if (File.Exists(path))
-        {
-            string pwd = File.ReadAllText(path).Trim();
-            // remove PasswordFile=... segment and append Password=...
-            string connNoPwdFile = Regex.Replace(configuredConn, "(?i)PasswordFile=[^;]+;?", "", RegexOptions.None);
-            finalConnection = connNoPwdFile.TrimEnd(';') + ";Password=" + pwd + ";";
-        }
-        else
-        {
-            // fallback: try to read /run/secrets/db_password
-            const string fallback = "/run/secrets/db_password";
-            if (File.Exists(fallback))
-            {
-                string pwd = File.ReadAllText(fallback).Trim();
-                string connNoPwdFile = Regex.Replace(configuredConn, "(?i)PasswordFile=[^;]+;?", "", RegexOptions.None);
-                finalConnection = connNoPwdFile.TrimEnd(';') + ";Password=" + pwd + ";";
-            }
-            else
-            {
-                // leave configuredConn as-is (may fail later)
-                finalConnection = configuredConn;
-            }
-        }
-    }
-    else
-    {
-        // no PasswordFile key: use configured connection string
-        finalConnection = configuredConn;
-    }
-}
-else
-{
-    // build default connection string using /run/secrets/db_password if present
-    string pwd = string.Empty;
-    const string fallback = "/run/secrets/db_password";
-    if (File.Exists(fallback)) pwd = File.ReadAllText(fallback).Trim();
-    finalConnection = $"Server=db;Database=GeneralDb;User=sa;Password={pwd};TrustServerCertificate=true;";
-}
+string finalConnection = ResolveDbConnection(builder);
 
 // === SERVICES ===
 builder.Services.AddDbContext<AppDbContext>(options =>
@@ -175,80 +102,6 @@ if (app.Environment.IsDevelopment())
 // Use the React CORS policy as the default for API endpoints (unless overridden per-endpoint)
 app.UseCors("React");
 
-// Health token: read from env or docker secret
-string? healthToken = builder.Configuration["HEALTH_TOKEN"];
-if (string.IsNullOrWhiteSpace(healthToken))
-{
-    const string healthTokenPath = "/run/secrets/primrose_health_token";
-    if (File.Exists(healthTokenPath))
-    {
-        healthToken = File.ReadAllText(healthTokenPath).Trim();
-    }
-}
-
-// Map a dedicated branch for /health before HTTPS redirection so probes don't get 308 redirects
-app.Map("/health", branch =>
-{
-    // Allow public CORS for health checks
-    branch.UseCors("Public");
-
-    // Simple in-memory IP-based rate limiter (per-minute window)
-    // Note: this is intentionally small and in-process; for multi-node clusters use a distributed store.
-    var rateLimitStore = new System.Collections.Concurrent.ConcurrentDictionary<string, (int Count, DateTime WindowStart)>();
-    const int LIMIT = 10; // requests per window
-    TimeSpan WINDOW = TimeSpan.FromMinutes(1);
-
-    branch.Run(async ctx =>
-    {
-        // If a health token is configured, require it via X-Health-Token header
-        if (!string.IsNullOrWhiteSpace(healthToken))
-        {
-            if (!ctx.Request.Headers.TryGetValue("X-Health-Token", out var val) || val != healthToken)
-            {
-                ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
-                return;
-            }
-        }
-
-        // Determine client identifier (prefer X-Forwarded-For then connection remote IP)
-        string client = "unknown";
-        if (ctx.Request.Headers.TryGetValue("X-Forwarded-For", out var xff) && !string.IsNullOrWhiteSpace(xff))
-        {
-            // X-Forwarded-For can contain a comma-separated list; take first
-            client = xff.ToString().Split(',')[0].Trim();
-        }
-        else if (ctx.Connection.RemoteIpAddress != null)
-        {
-            client = ctx.Connection.RemoteIpAddress.ToString();
-        }
-
-        // rate limit only when no health token is configured OR even when token present? policy: always apply
-        var now = DateTime.UtcNow;
-        var entry = rateLimitStore.AddOrUpdate(client,
-            addValueFactory: _ => (1, now),
-            updateValueFactory: (_, state) =>
-            {
-                var (count, windowStart) = state;
-                if (now - windowStart > WINDOW)
-                {
-                    // reset window
-                    return (1, now);
-                }
-                return (count + 1, windowStart);
-            });
-
-        if (entry.Count > LIMIT)
-        {
-            ctx.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-            ctx.Response.Headers["Retry-After"] = "60"; // seconds
-            return;
-        }
-
-        ctx.Response.ContentType = "application/json";
-        await ctx.Response.WriteAsync("{\"status\":\"ok\"}");
-    });
-});
-
 // Make HTTPS redirection conditional so local direct HTTP requests (curl tests) don't get 308
 // Set ENABLE_HTTPS_REDIRECT=true in production / reverse-proxy environments where TLS is required
 var enableHttpsRedirect = builder.Configuration["ENABLE_HTTPS_REDIRECT"];
@@ -264,72 +117,10 @@ else
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.MapAdminEndpoints();
 app.MapPageEndpoints();
 
-// Apply pending EF migrations and seed admin user from Docker secrets (idempotent)
-using (IServiceScope scope = app.Services.CreateScope())
-{
-    try
-    {
-        ILogger<Program> logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-        AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-        logger.LogInformation("Applying database migrations (if any)");
-        try
-        {
-            db.Database.Migrate();
-            logger.LogInformation("Database migrations applied");
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Database migration failed or skipped");
-        }
-
-        // Read admin credentials from Docker secrets only
-        const string adminUserPath = "/run/secrets/primrose_admin_username";
-        const string adminPassPath = "/run/secrets/primrose_admin_password";
-
-        string? adminUser = null;
-        string? adminPass = null;
-
-        if (File.Exists(adminUserPath) && File.Exists(adminPassPath))
-        {
-            adminUser = File.ReadAllText(adminUserPath).Trim();
-            adminPass = File.ReadAllText(adminPassPath).Trim();
-        }
-
-        if (!string.IsNullOrWhiteSpace(adminUser) && !string.IsNullOrWhiteSpace(adminPass))
-        {
-            // seed only if admin does not exist
-            if (!db.Admins.Any(a => a.Username == adminUser))
-            {
-                logger.LogInformation("Seeding admin user from Docker secrets: {User}", adminUser);
-                string? hash = BCrypt.Net.BCrypt.HashPassword(adminPass);
-                db.Admins.Add(new PrimroseBackend.Data.Models.Admin
-                {
-                    Username = adminUser,
-                    PasswordHash = hash,
-                    IsAdmin = true
-                });
-                db.SaveChanges();
-                logger.LogInformation("Admin user seeded");
-            }
-            else
-            {
-                logger.LogInformation("Admin user {User} already exists, skipping seed", adminUser);
-            }
-        }
-        else
-        {
-            logger.LogWarning("Admin Docker secrets not found; no admin user was seeded. Expect primrose_admin_username and primrose_admin_password in /run/secrets");
-        }
-    }
-    catch (Exception ex)
-    {
-        ILogger logger = app.Logger;
-        logger.LogError(ex, "Unexpected error during migration/seed");
-    }
-}
+SeedAdminUser(app);
 
 app.Run();
 
