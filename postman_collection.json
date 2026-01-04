@@ -213,6 +213,35 @@
 						}
 					},
 					"response": []
+				},
+				{
+					"name": "Delete Page",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{jwt_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/pages/1",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"pages",
+								"1"
+							]
+						}
+					},
+					"response": []
 				}
 			]
 		}

@@ -36,7 +36,6 @@ string finalConnection = ResolveDbConnection(builder);
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(finalConnection));
 
-builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 

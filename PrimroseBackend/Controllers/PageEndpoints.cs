@@ -1,7 +1,8 @@
-﻿using MediatR;
+﻿using Microsoft.EntityFrameworkCore;
 using OtpNet;
+using PrimroseBackend.Data;
+using PrimroseBackend.Data.Dtos;
 using PrimroseBackend.Data.Models;
-using PrimroseBackend.Mediatr;
 
 namespace PrimroseBackend.Controllers;
 
@@ -9,7 +10,7 @@ public static class PageEndpoints
 {
     public static WebApplication MapPageEndpoints(this WebApplication app)
     {
-        app.MapGet("/api/pages", async (IMediator mediator, IConfiguration config, HttpContext ctx) =>
+        app.MapGet("/api/pages", async (AppDbContext db, IConfiguration config, HttpContext ctx) =>
             {
                 // TOTP Secret (dev: env, prod: secret file)
                 string? secret = Environment.GetEnvironmentVariable("SharedSecret") ?? config["SharedSecret"];
@@ -25,7 +26,7 @@ public static class PageEndpoints
                     !totp.VerifyTotp(code.ToString(), out _, new VerificationWindow(1, 1)))
                     return Results.Unauthorized();
 
-                List<Page> pages = await mediator.Send(new GetPagesQuery());
+                List<Page> pages = await db.Pages.ToListAsync();
                 return Results.Ok(pages);
             })
             .WithName("GetPages");
@@ -33,25 +34,43 @@ public static class PageEndpoints
 // === ADMIN (JWT) ===
         
 
-        app.MapGet("/api/pages/admin", async (IMediator mediator) =>
-                await mediator.Send(new GetPagesQuery()))
+        app.MapGet("/api/pages/admin", async (AppDbContext db) =>
+                await db.Pages.ToListAsync())
             .RequireAuthorization()
             .WithName("GetPagesAdmin");
 
-        app.MapPost("/api/pages", async (CreatePageCommand cmd, IMediator mediator) =>
+        app.MapPost("/api/pages", async (CreatePageDto dto, AppDbContext db) =>
             {
-                Page page = await mediator.Send(cmd);
+                Page page = new Page { Description = dto.Description, Url = dto.Url };
+                db.Pages.Add(page);
+                await db.SaveChangesAsync();
                 return Results.Created($"/api/pages/{page.Id}", page);
             }).RequireAuthorization()
             .WithName("CreatePage");
 
-        app.MapPut("/api/pages/{id:int}", async (int id, UpdatePageCommand cmd, IMediator mediator) =>
+        app.MapPut("/api/pages/{id:int}", async (int id, UpdatePageDto dto, AppDbContext db) =>
             {
-                if (cmd.Id != id) return Results.BadRequest();
-                Page page = await mediator.Send(cmd);
+                Page? page = await db.Pages.FindAsync(id);
+                if (page == null) return Results.NotFound();
+                
+                page.Description = dto.Description;
+                page.Url = dto.Url;
+                await db.SaveChangesAsync();
                 return Results.Ok(page);
             }).RequireAuthorization()
             .WithName("UpdatePage");
+
+        app.MapDelete("/api/pages/{id:int}", async (int id, AppDbContext db) =>
+            {
+                Page? page = await db.Pages.FindAsync(id);
+                if (page == null) return Results.NotFound();
+
+                db.Pages.Remove(page);
+                await db.SaveChangesAsync();
+                return Results.NoContent();
+            }).RequireAuthorization()
+            .WithName("DeletePage");
+
         return app;
     }
 }
