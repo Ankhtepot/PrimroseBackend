@@ -124,7 +124,8 @@ public static class EnvironmentInitialization
             if (!string.IsNullOrWhiteSpace(adminUser) && !string.IsNullOrWhiteSpace(adminPass))
             {
                 // seed only if admin does not exist
-                if (!db.Admins.Any(a => a.Username == adminUser))
+                Admin? existingAdmin = db.Admins.SingleOrDefault(a => a.Username == adminUser);
+                if (existingAdmin == null)
                 {
                     logger.LogInformation("Seeding admin user from Docker secrets: {User}", adminUser);
                     string? hash = BCrypt.Net.BCrypt.HashPassword(adminPass);
@@ -141,7 +142,15 @@ public static class EnvironmentInitialization
                 }
                 else
                 {
-                    logger.LogInformation("Admin user {User} already exists, skipping seed", adminUser);
+                    logger.LogInformation("Admin user {User} already exists", adminUser);
+                    // Ensure existing admin has the 'Admin' role if it was added via migration recently
+                    if (string.IsNullOrWhiteSpace(existingAdmin.Role))
+                    {
+                        logger.LogInformation("Updating missing Role for existing admin {User}", adminUser);
+                        existingAdmin.Role = "Admin";
+                        existingAdmin.IsAdmin = true;
+                        db.SaveChanges();
+                    }
                 }
             }
             else
