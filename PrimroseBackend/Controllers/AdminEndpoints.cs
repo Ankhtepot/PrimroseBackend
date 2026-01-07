@@ -25,7 +25,7 @@ public static class AdminEndpoints
             if (admin == null)
                 return Results.Unauthorized();
 
-            bool passwordOk = false;
+            bool passwordOk;
             try
             {
                 passwordOk = BCrypt.Net.BCrypt.Verify(request.Password, admin.PasswordHash);
@@ -46,21 +46,18 @@ public static class AdminEndpoints
             SymmetricSecurityKey key = new(Encoding.UTF8.GetBytes(jwtSecret));
             SigningCredentials credentials = new(key, SecurityAlgorithms.HmacSha256);
 
-            // 1. Prepare claims list
-            var claims = new List<Claim>
-            {
-                new Claim(ClaimTypes.Name, request.Username),
-                new Claim("IsAdmin", admin.IsAdmin.ToString().ToLower())
-            };
+            // 1. Prepare a claims list
+            List<Claim> claims =
+            [
+                new(ClaimTypes.Name, request.Username),
+                new("IsAdmin", admin.IsAdmin.ToString().ToLower())
+            ];
 
             // 2. Split roles from the string and add them as claims
             if (!string.IsNullOrWhiteSpace(admin.Role))
             {
-                var roles = admin.Role.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                foreach (var role in roles)
-                {
-                    claims.Add(new Claim(ClaimTypes.Role, role));
-                }
+                string[] roles = admin.Role.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
             }
 
             // 3. Create the token with the claims list
@@ -83,10 +80,13 @@ public static class AdminEndpoints
 
         app.MapPost("/api/admins", async (CreateAdminDto dto, AppDbContext db) =>
             {
+                if (string.IsNullOrWhiteSpace(dto.Username) || string.IsNullOrWhiteSpace(dto.Password))
+                    return Results.BadRequest("Username and Password are required");
+
                 if (await db.Admins.AnyAsync(a => a.Username == dto.Username))
                     return Results.Conflict("Username already exists");
 
-                var admin = new Admin
+                Admin admin = new()
                 {
                     Username = dto.Username,
                     PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
@@ -103,7 +103,10 @@ public static class AdminEndpoints
 
         app.MapPut("/api/admins/{id:int}", async (int id, UpdateAdminDto dto, AppDbContext db, ClaimsPrincipal user) =>
             {
-                var admin = await db.Admins.FindAsync(id);
+                if (string.IsNullOrWhiteSpace(dto.Username))
+                    return Results.BadRequest("Username is required");
+
+                Admin? admin = await db.Admins.FindAsync(id);
                 if (admin == null) return Results.NotFound();
 
                 // Prevent non-Admin users from modifying the core admin (ID 1)
@@ -126,7 +129,7 @@ public static class AdminEndpoints
 
         app.MapDelete("/api/admins/{id:int}", async (int id, AppDbContext db) =>
             {
-                var admin = await db.Admins.FindAsync(id);
+                Admin? admin = await db.Admins.FindAsync(id);
                 if (admin == null) return Results.NotFound();
                 if (admin.IsAdmin) return Results.BadRequest("Cannot delete admin account");
                 if (admin.Id == 1) return Results.BadRequest($"Cannot delete {ProjectConstants.Roles.Admin} account");

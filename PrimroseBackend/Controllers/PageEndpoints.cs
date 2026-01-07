@@ -42,7 +42,10 @@ public static class PageEndpoints
 
         app.MapPost("/api/pages", async (CreatePageDto dto, AppDbContext db) =>
             {
-                Page page = new Page { Description = dto.Description, Url = dto.Url };
+                if (string.IsNullOrWhiteSpace(dto.Description) || string.IsNullOrWhiteSpace(dto.Url))
+                    return Results.BadRequest("Description and URL are required");
+
+                Page page = new() { Description = dto.Description, Url = dto.Url };
                 db.Pages.Add(page);
                 await db.SaveChangesAsync();
                 return Results.Created($"/api/pages/{page.Id}", page);
@@ -51,6 +54,9 @@ public static class PageEndpoints
 
         app.MapPut("/api/pages/{id:int}", async (int id, UpdatePageDto dto, AppDbContext db) =>
             {
+                if (string.IsNullOrWhiteSpace(dto.Description) || string.IsNullOrWhiteSpace(dto.Url))
+                    return Results.BadRequest("Description and URL are required");
+
                 Page? page = await db.Pages.FindAsync(id);
                 if (page == null) return Results.NotFound();
                 
