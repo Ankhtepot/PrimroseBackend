@@ -35,6 +35,17 @@ Confirm active swarm mode:
 docker info --format '{{.Swarm.LocalNodeState}}'
 ```
 
+### Database Migrations (Local Development)
+If you change the models, you need to create and apply migrations locally:
+```shell
+# 1. Create a new migration
+dotnet ef migrations add <MigrationName> --project PrimroseBackend --startup-project PrimroseBackend
+
+# 2. Apply migrations to the local database
+dotnet ef database update --project PrimroseBackend --startup-project PrimroseBackend
+```
+*Note: In production (Hetzner), migrations are applied automatically on startup.*
+
 ## Scripts
 
 ### Deploy stack (Swarm) using the convenience script (recommended):

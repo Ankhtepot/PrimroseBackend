@@ -88,7 +88,10 @@ public static class AdminEndpoints
             {
                 // Health token: read from env (set at startup) or config
                 IConfiguration config = ctx.RequestServices.GetRequiredService<IConfiguration>();
-                string? healthToken = Environment.GetEnvironmentVariable("HEALTH_TOKEN") ?? config["HEALTH_TOKEN"];
+                string? healthToken = Environment.GetEnvironmentVariable("PRIMROSE_HEALTH_TOKEN") 
+                                      ?? config["PRIMROSE_HEALTH_TOKEN"]
+                                      ?? Environment.GetEnvironmentVariable("HEALTH_TOKEN") 
+                                      ?? config["HEALTH_TOKEN"];
 
                 // If a health token is configured, require it via X-Health-Token header
                 if (!string.IsNullOrWhiteSpace(healthToken))

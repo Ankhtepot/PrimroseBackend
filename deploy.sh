@@ -246,9 +246,12 @@ HEALTH_TOKEN=""
 if $SUDO docker secret ls --format '{{.Name}}' | grep -q '^primrose_health_token$'; then
   echo "[deploy] primrose_health_token secret present; ensure HEALTH_TOKEN available in .env or monitoring uses header"
 fi
-# If HEALTH_TOKEN present in .env, use it
+# If PRIMROSE_HEALTH_TOKEN or HEALTH_TOKEN present in .env, use it
 if [ -f "$ENV_PATH" ]; then
-  env_ht=$(grep -E '^HEALTH_TOKEN=' "$ENV_PATH" | sed -E 's/^HEALTH_TOKEN=//') || true
+  env_ht=$(grep -E '^PRIMROSE_HEALTH_TOKEN=' "$ENV_PATH" | sed -E 's/^PRIMROSE_HEALTH_TOKEN=//') || true
+  if [ -z "$env_ht" ]; then
+    env_ht=$(grep -E '^HEALTH_TOKEN=' "$ENV_PATH" | sed -E 's/^HEALTH_TOKEN=//') || true
+  fi
   if [ -n "$env_ht" ]; then
     HEALTH_TOKEN="$env_ht"
   fi

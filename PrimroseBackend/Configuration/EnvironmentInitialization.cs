@@ -33,7 +33,7 @@ public static class EnvironmentInitialization
 
     public static string? ResolveHealthToken(WebApplicationBuilder webApplicationBuilder)
     {
-        string? healthToken = webApplicationBuilder.Configuration["HEALTH_TOKEN"];
+        string? healthToken = webApplicationBuilder.Configuration["PRIMROSE_HEALTH_TOKEN"] ?? webApplicationBuilder.Configuration["HEALTH_TOKEN"];
         if (string.IsNullOrWhiteSpace(healthToken))
         {
             string[] paths = ["/run/secrets/primrose_health_token", "/run/secrets/health_token"];
@@ -44,7 +44,7 @@ public static class EnvironmentInitialization
                     healthToken = File.ReadAllText(path).Trim();
                     if (!string.IsNullOrWhiteSpace(healthToken))
                     {
-                        Environment.SetEnvironmentVariable("HEALTH_TOKEN", healthToken);
+                        Environment.SetEnvironmentVariable("PRIMROSE_HEALTH_TOKEN", healthToken);
                         break;
                     }
                 }
