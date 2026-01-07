@@ -3,6 +3,7 @@ using OtpNet;
 using PrimroseBackend.Data;
 using PrimroseBackend.Data.Dtos;
 using PrimroseBackend.Data.Models;
+using PrimroseBackend.Shared;
 
 namespace PrimroseBackend.Controllers;
 
@@ -36,7 +37,7 @@ public static class PageEndpoints
 
         app.MapGet("/api/pages/admin", async (AppDbContext db) =>
                 await db.Pages.ToListAsync())
-            .RequireAuthorization("AdminOnly")
+            .RequiredAdministrators("webapi")
             .WithName("GetPagesAdmin");
 
         app.MapPost("/api/pages", async (CreatePageDto dto, AppDbContext db) =>
@@ -45,7 +46,7 @@ public static class PageEndpoints
                 db.Pages.Add(page);
                 await db.SaveChangesAsync();
                 return Results.Created($"/api/pages/{page.Id}", page);
-            }).RequireAuthorization("AdminOnly")
+            }).RequiredAdministrators("webapi")
             .WithName("CreatePage");
 
         app.MapPut("/api/pages/{id:int}", async (int id, UpdatePageDto dto, AppDbContext db) =>
@@ -57,7 +58,7 @@ public static class PageEndpoints
                 page.Url = dto.Url;
                 await db.SaveChangesAsync();
                 return Results.Ok(page);
-            }).RequireAuthorization("AdminOnly")
+            }).RequiredAdministrators("webapi")
             .WithName("UpdatePage");
 
         app.MapDelete("/api/pages/{id:int}", async (int id, AppDbContext db) =>
@@ -68,7 +69,7 @@ public static class PageEndpoints
                 db.Pages.Remove(page);
                 await db.SaveChangesAsync();
                 return Results.NoContent();
-            }).RequireAuthorization("AdminOnly")
+            }).RequiredAdministrators("webapi")
             .WithName("DeletePage");
 
         return app;

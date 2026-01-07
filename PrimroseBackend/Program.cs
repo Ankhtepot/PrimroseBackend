@@ -97,13 +97,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
-builder.Services.AddAuthorization(options =>
-{
-    // Admin role is always allowed for any policy we might define here.
-    // If you want to use specific policies on endpoints:
-    options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
-    options.AddPolicy("WebApiPolicy", policy => policy.RequireRole("Admin", "webapi"));
-});
+builder.Services.AddAuthorization();
 
 WebApplication app = builder.Build();
 
