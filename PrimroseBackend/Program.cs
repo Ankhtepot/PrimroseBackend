@@ -82,9 +82,28 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateAudience = false,
             ClockSkew = TimeSpan.Zero
         };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnChallenge = context =>
+            {
+                // If the token is expired, add a custom header or change the response to signal it clearly
+                if (context.AuthenticateFailure is SecurityTokenExpiredException)
+                {
+                    context.Response.Headers.Append("X-Token-Expired", "true");
+                }
+                return Task.CompletedTask;
+            }
+        };
     });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    // Admin role is always allowed for any policy we might define here.
+    // If you want to use specific policies on endpoints:
+    options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
+    options.AddPolicy("WebApiPolicy", policy => policy.RequireRole("Admin", "webapi"));
+});
 
 WebApplication app = builder.Build();
 

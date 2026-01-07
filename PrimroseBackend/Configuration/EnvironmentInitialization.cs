@@ -1,6 +1,7 @@
 ﻿using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using PrimroseBackend.Data;
+using PrimroseBackend.Data.Models;
 
 namespace PrimroseBackend.Configuration;
 
@@ -77,81 +78,82 @@ public static class EnvironmentInitialization
     public static void SeedAdminUser(WebApplication app)
     {
         // Apply pending EF migrations and seed admin user from Docker secrets (idempotent)
-        using (IServiceScope scope = app.Services.CreateScope())
+        using IServiceScope scope = app.Services.CreateScope();
+        
+        try
         {
+            ILogger<Program> logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+            AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            logger.LogInformation("Applying database migrations (if any)");
             try
             {
-                ILogger<Program> logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-                AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-                logger.LogInformation("Applying database migrations (if any)");
-                try
-                {
-                    db.Database.Migrate();
-                    logger.LogInformation("Database migrations applied");
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Database migration failed or skipped");
-                }
-
-                // Read admin credentials from Docker secrets
-                string[] userPaths = ["/run/secrets/primrose_admin_username", "/run/secrets/admin_username"];
-                string[] passPaths = ["/run/secrets/primrose_admin_password", "/run/secrets/admin_password"];
-
-                string? adminUser = null;
-                string? adminPass = null;
-
-                foreach (var path in userPaths)
-                {
-                    if (File.Exists(path))
-                    {
-                        adminUser = File.ReadAllText(path).Trim();
-                        break;
-                    }
-                }
-
-                foreach (var path in passPaths)
-                {
-                    if (File.Exists(path))
-                    {
-                        adminPass = File.ReadAllText(path).Trim();
-                        break;
-                    }
-                }
-
-                if (!string.IsNullOrWhiteSpace(adminUser) && !string.IsNullOrWhiteSpace(adminPass))
-                {
-                    // seed only if admin does not exist
-                    if (!db.Admins.Any(a => a.Username == adminUser))
-                    {
-                        logger.LogInformation("Seeding admin user from Docker secrets: {User}", adminUser);
-                        string? hash = BCrypt.Net.BCrypt.HashPassword(adminPass);
-                        db.Admins.Add(new PrimroseBackend.Data.Models.Admin
-                        {
-                            Username = adminUser,
-                            PasswordHash = hash,
-                            IsAdmin = true
-                        });
-                        db.SaveChanges();
-                        logger.LogInformation("Admin user seeded");
-                    }
-                    else
-                    {
-                        logger.LogInformation("Admin user {User} already exists, skipping seed", adminUser);
-                    }
-                }
-                else
-                {
-                    logger.LogWarning(
-                        "Admin Docker secrets not found; no admin user was seeded. Expect primrose_admin_username and primrose_admin_password in /run/secrets");
-                }
+                db.Database.Migrate();
+                logger.LogInformation("Database migrations applied");
             }
             catch (Exception ex)
             {
-                ILogger logger = app.Logger;
-                logger.LogError(ex, "Unexpected error during migration/seed");
+                logger.LogWarning(ex, "Database migration failed or skipped");
             }
+
+            // Read admin credentials from Docker secrets
+            string[] userPaths = ["/run/secrets/primrose_admin_username", "/run/secrets/admin_username"];
+            string[] passPaths = ["/run/secrets/primrose_admin_password", "/run/secrets/admin_password"];
+
+            string? adminUser = null;
+            string? adminPass = null;
+
+            foreach (var path in userPaths)
+            {
+                if (File.Exists(path))
+                {
+                    adminUser = File.ReadAllText(path).Trim();
+                    break;
+                }
+            }
+
+            foreach (var path in passPaths)
+            {
+                if (File.Exists(path))
+                {
+                    adminPass = File.ReadAllText(path).Trim();
+                    break;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(adminUser) && !string.IsNullOrWhiteSpace(adminPass))
+            {
+                // seed only if admin does not exist
+                if (!db.Admins.Any(a => a.Username == adminUser))
+                {
+                    logger.LogInformation("Seeding admin user from Docker secrets: {User}", adminUser);
+                    string? hash = BCrypt.Net.BCrypt.HashPassword(adminPass);
+                    db.Admins.Add(new Admin
+                    {
+                        Username = adminUser,
+                        PasswordHash = hash,
+                        IsAdmin = true,
+                        Role = "Admin",
+                        CreatedAt = DateTime.UtcNow
+                    });
+                    db.SaveChanges();
+                    logger.LogInformation("Admin user seeded");
+                }
+                else
+                {
+                    logger.LogInformation("Admin user {User} already exists, skipping seed", adminUser);
+                }
+            }
+            else
+            {
+                logger.LogWarning(
+                    "Admin Docker secrets not found; no admin user was seeded. Expect primrose_admin_username and primrose_admin_password in /run/secrets");
+            }
+        }
+        catch (Exception ex)
+        {
+            ILogger logger = app.Logger;
+            logger.LogError(ex, "Unexpected error during migration/seed");
         }
     }
 

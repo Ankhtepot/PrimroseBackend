@@ -215,8 +215,16 @@ else
   $SUDO docker service update --image "$IMAGE_TAG" "${STACK_NAME}_primrose-backend" --force || true
 
   if [ "${CLEAN_OLD_IMAGES}" = "true" ]; then
-    echo "[deploy] Cleaning up unused images"
+    echo "[deploy] Cleaning up unused images and stopped containers"
+    # Remove stopped containers
+    $SUDO docker container prune -f || true
+    # Remove dangling images
     $SUDO docker image prune -f || true
+    # Remove old primrose-backend images that are not the current TAG and not latest
+    if [ -n "${TAG:-}" ]; then
+      echo "[deploy] Cleaning up old backend images (keeping :latest and :${TAG})"
+      $SUDO docker images primrose-primrose-backend --format '{{.Repository}}:{{.Tag}}' | grep -v ":latest$" | grep -v ":${TAG}$" | xargs -r $SUDO docker rmi || true
+    fi
   fi
 fi
 

@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "b78d2b2c-63e2-4c9f-863a-8677c7f763a1",
 		"name": "Primrose Backend API",
-		"description": "Collection for testing Primrose Backend endpoints.\n\n### Authentication\n- **JWT Auth**: Used for admin endpoints. Obtain token via `/api/auth/login` and it will be stored in the `jwt_token` variable.\n- **TOTP Auth**: Used for the public `/api/pages` endpoint. Uses the `X-App-Auth` header. Note: Postman doesn't natively generate TOTP codes without scripts or external libraries, so you'll need to provide it manually in the variable or use the provided pre-request script if your environment supports it (requires `otpauth` or similar, which standard Postman doesn't have, so it's best to enter it manually or use a helper).\n- **Health Token**: Used for `/health` via `X-Health-Token` header.",
+		"description": "Collection for testing Primrose Backend endpoints.\n\n### Authentication\n- **JWT Auth**: Used for admin endpoints. Obtain token via `/api/auth/login` and it will be stored in the `jwt_token` variable. Tokens expire in 1 day.\n- **TOTP Auth**: Used for the public `/api/pages` endpoint. Uses the `X-App-Auth` header. Note: Postman doesn't natively generate TOTP codes without scripts or external libraries, so you'll need to provide it manually in the variable.\n- **Health Token**: Used for `/health` via `X-Health-Token` header.\n\n### Token Expiration\nIf a request returns a `401 Unauthorized` and the `X-Token-Expired` header is `true`, the `jwt_token` variable is automatically cleared in the collection test script, signaling that a re-login is required.",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
@@ -193,7 +193,7 @@
 						"header": [],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"id\": 1,\n    \"description\": \"Updated Description\",\n    \"url\": \"https://updated-example.com\"\n}",
+							"raw": "{\n    \"description\": \"Updated Description\",\n    \"url\": \"https://updated-example.com\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -261,7 +261,10 @@
 			"script": {
 				"type": "text/javascript",
 				"exec": [
-					""
+					"if (pm.response.code === 401 && pm.response.headers.get('X-Token-Expired') === 'true') {",
+					"    console.log('Token expired. Clearing jwt_token.');",
+					"    pm.collectionVariables.set('jwt_token', '');",
+					"}"
 				]
 			}
 		}

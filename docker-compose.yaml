@@ -23,6 +23,9 @@
       - primrose_jwt
       - primrose_shared
       - db_password
+      - primrose_admin_username
+      - primrose_admin_password
+      - primrose_health_token
     volumes:
       - primrose_dataprotection:/home/app/.aspnet/DataProtection-Keys
 
@@ -53,6 +56,12 @@ secrets:
   primrose_shared:
     external: true
   db_password:
+    external: true
+  primrose_admin_username:
+    external: true
+  primrose_admin_password:
+    external: true
+  primrose_health_token:
     external: true
 
 volumes:

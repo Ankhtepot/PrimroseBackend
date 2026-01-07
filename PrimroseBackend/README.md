@@ -13,14 +13,21 @@ Remove docker secret:
 docker secret rm <secret_name>
 ```
 
-Stop docker compose and remove volumes:
+Stop docker compose and remove volumes (Local Development):
 ```shell
-sudo docker compose down -v
+docker compose down -v
 ```
 
-Running backend only – restart:
+Remove stack and cleanup (Production Swarm):
 ```shell
-sudo docker compose up -d --no-deps --force-recreate --build primrose-backend
+sudo docker stack rm primrose
+# To remove persistent volumes as well:
+sudo docker volume rm primrose_mssql_data primrose_primrose_dataprotection
+```
+
+Running backend only – restart (Local Development):
+```shell
+docker compose up -d --no-deps --force-recreate --build primrose-backend
 ```
 
 Confirm active swarm mode:
@@ -36,10 +43,21 @@ docker info --format '{{.Swarm.LocalNodeState}}'
 sudo bash /srv/primrose/deploy.sh
 ```
 
+**Supported Flags:**
+- `--force` or `-f`: Force rebuild and redeploy even if no git changes are detected.
+- `--fresh`: Remove the existing stack, secrets, and networks before redeploying.
+- `--purge-volumes`: Use with `--fresh` to also remove persistent database and data protection volumes.
+
 ### Check Stack
 ```shell
 sudo bash /srv/primrose/scripts/check_stack.sh
 ```
+
+## API Testing (Postman)
+A Postman collection is provided in the root directory: `postman_collection.json`.
+- **JWT Auth**: Automatically handled for admin endpoints after a successful login.
+- **TOTP Auth**: Required for public `/api/pages`. Provide a 6-digit code in the `X-App-Auth` header.
+- **Expiration**: If a token expires, the backend returns `X-Token-Expired: true` header. The Postman collection will automatically clear the token variable in this case.
 
 ## Summary For Hetzner Cloud
 
@@ -59,6 +77,9 @@ printf '%s' "$ADMINUSER" | docker secret create primrose_admin_username -
 
 read -s -p "Enter admin password (will be hidden): " ADMINPASS && echo
 printf '%s' "$ADMINPASS" | docker secret create primrose_admin_password -
+
+read -s -p "Enter health token: " HT && echo
+printf '%s' "$HT" | docker secret create primrose_health_token -
 ```
 
 Redeploy (pull latest, build image and deploy stack)
@@ -66,7 +87,7 @@ Redeploy (pull latest, build image and deploy stack)
 cd /srv/primrose
 sudo chmod +x ./deploy.sh
 sudo ./deploy.sh
-Quick one-off rebuild of backend only (no DB downtime)
+Quick one-off rebuild of backend only (Local Dev or troubleshooting only)
 cd /srv/primrose
 sudo docker compose up -d --no-deps --build primrose-backend
 ```
