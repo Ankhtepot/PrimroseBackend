@@ -68,7 +68,7 @@ sudo bash /srv/primrose/scripts/check_stack.sh
 A Postman collection is provided in the root directory: `postman_collection.json`.
 - **JWT Auth**: Automatically handled for admin endpoints after a successful login.
 - **Admin Management**: Dedicated endpoints for CRUD operations on administrative users.
-    - `GET /api/admins`: List all administrators (Requires Admin/webapi role).
+    - `GET /api/admins`: List all administrators (Requires Admin/web_app role).
     - `POST /api/admins`: Create a new administrator.
     - `PUT /api/admins/{id}`: Update existing administrator (optional password update).
     - `DELETE /api/admins/{id}`: Remove an administrator.

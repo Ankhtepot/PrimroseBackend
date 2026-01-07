@@ -37,7 +37,7 @@ public static class PageEndpoints
 
         app.MapGet("/api/pages/admin", async (AppDbContext db) =>
                 await db.Pages.ToListAsync())
-            .RequiredAdministrators("webapi")
+            .RequiredAdministrators(ProjectConstants.Roles.WebApp)
             .WithName("GetPagesAdmin");
 
         app.MapPost("/api/pages", async (CreatePageDto dto, AppDbContext db) =>
@@ -46,7 +46,7 @@ public static class PageEndpoints
                 db.Pages.Add(page);
                 await db.SaveChangesAsync();
                 return Results.Created($"/api/pages/{page.Id}", page);
-            }).RequiredAdministrators("webapi")
+            }).RequiredAdministrators(ProjectConstants.Roles.WebApp)
             .WithName("CreatePage");
 
         app.MapPut("/api/pages/{id:int}", async (int id, UpdatePageDto dto, AppDbContext db) =>
@@ -58,7 +58,7 @@ public static class PageEndpoints
                 page.Url = dto.Url;
                 await db.SaveChangesAsync();
                 return Results.Ok(page);
-            }).RequiredAdministrators("webapi")
+            }).RequiredAdministrators(ProjectConstants.Roles.WebApp)
             .WithName("UpdatePage");
 
         app.MapDelete("/api/pages/{id:int}", async (int id, AppDbContext db) =>
@@ -69,7 +69,7 @@ public static class PageEndpoints
                 db.Pages.Remove(page);
                 await db.SaveChangesAsync();
                 return Results.NoContent();
-            }).RequiredAdministrators("webapi")
+            }).RequiredAdministrators(ProjectConstants.Roles.WebApp)
             .WithName("DeletePage");
 
         return app;

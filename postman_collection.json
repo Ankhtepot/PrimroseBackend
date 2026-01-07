@@ -328,7 +328,7 @@
 								"header": [],
 								"body": {
 									"mode": "raw",
-									"raw": "{\n    \"username\": \"updatedname\",\n    \"password\": \"newpassword\",\n    \"role\": \"Admin,webapi\",\n    \"isAdmin\": true\n}",
+									"raw": "{\n    \"username\": \"updatedname\",\n    \"password\": \"newpassword\",\n    \"role\": \"Admin,web_app\",\n    \"isAdmin\": true\n}",
 									"options": {
 										"raw": {
 											"language": "json"

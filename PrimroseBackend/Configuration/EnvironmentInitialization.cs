@@ -2,6 +2,7 @@
 using Microsoft.EntityFrameworkCore;
 using PrimroseBackend.Data;
 using PrimroseBackend.Data.Models;
+using PrimroseBackend.Shared;
 
 namespace PrimroseBackend.Configuration;
 
@@ -134,7 +135,7 @@ public static class EnvironmentInitialization
                         Username = adminUser,
                         PasswordHash = hash,
                         IsAdmin = true,
-                        Role = "Admin",
+                        Role = ProjectConstants.Roles.Admin,
                         CreatedAt = DateTime.UtcNow
                     });
                     db.SaveChanges();
@@ -147,7 +148,7 @@ public static class EnvironmentInitialization
                     if (string.IsNullOrWhiteSpace(existingAdmin.Role))
                     {
                         logger.LogInformation("Updating missing Role for existing admin {User}", adminUser);
-                        existingAdmin.Role = "Admin";
+                        existingAdmin.Role = ProjectConstants.Roles.Admin;
                         existingAdmin.IsAdmin = true;
                         db.SaveChanges();
                     }
