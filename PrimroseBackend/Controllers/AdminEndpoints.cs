@@ -8,6 +8,7 @@ using Microsoft.IdentityModel.Tokens;
 using PrimroseBackend.Data;
 using PrimroseBackend.Data.Dtos;
 using PrimroseBackend.Data.Models;
+using PrimroseBackend.Shared;
 
 namespace PrimroseBackend.Controllers;
 
@@ -71,6 +72,70 @@ public static class AdminEndpoints
 
             return Results.Ok(new {Token = new JwtSecurityTokenHandler().WriteToken(token)});
         });
+
+        // === Admin Management CRUD ===
+        app.MapGet("/api/admins", async (AppDbContext db) =>
+                await db.Admins
+                    .Select(a => new AdminResponseDto(a.Id, a.Username, a.Role, a.IsAdmin, a.CreatedAt))
+                    .ToListAsync())
+            .RequiredAdministrators("webapi")
+            .WithName("GetAdmins");
+
+        app.MapPost("/api/admins", async (CreateAdminDto dto, AppDbContext db) =>
+            {
+                if (await db.Admins.AnyAsync(a => a.Username == dto.Username))
+                    return Results.Conflict("Username already exists");
+
+                var admin = new Admin
+                {
+                    Username = dto.Username,
+                    PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
+                    Role = dto.Role,
+                    IsAdmin = dto.IsAdmin,
+                    CreatedAt = DateTime.UtcNow
+                };
+                db.Admins.Add(admin);
+                await db.SaveChangesAsync();
+                return Results.Created($"/api/admins/{admin.Id}",
+                    new AdminResponseDto(admin.Id, admin.Username, admin.Role, admin.IsAdmin, admin.CreatedAt));
+            }).RequiredAdministrators("webapi")
+            .WithName("CreateAdmin");
+
+        app.MapPut("/api/admins/{id:int}", async (int id, UpdateAdminDto dto, AppDbContext db, ClaimsPrincipal user) =>
+            {
+                var admin = await db.Admins.FindAsync(id);
+                if (admin == null) return Results.NotFound();
+
+                // Prevent non-Admin users from modifying the core admin (ID 1)
+                if (id == 1 && !user.IsInRole("Admin"))
+                {
+                    return Results.Forbid();
+                }
+
+                admin.Username = dto.Username;
+                admin.Role = dto.Role;
+                admin.IsAdmin = dto.IsAdmin;
+                if (!string.IsNullOrWhiteSpace(dto.Password))
+                    admin.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
+
+                await db.SaveChangesAsync();
+                return Results.Ok(new AdminResponseDto(admin.Id, admin.Username, admin.Role, admin.IsAdmin,
+                    admin.CreatedAt));
+            }).RequiredAdministrators("webapi")
+            .WithName("UpdateAdmin");
+
+        app.MapDelete("/api/admins/{id:int}", async (int id, AppDbContext db) =>
+            {
+                var admin = await db.Admins.FindAsync(id);
+                if (admin == null) return Results.NotFound();
+                if (admin.IsAdmin) return Results.BadRequest("Cannot delete admin account");
+                if (admin.Id == 1) return Results.BadRequest("Cannot delete Admin account");
+
+                db.Admins.Remove(admin);
+                await db.SaveChangesAsync();
+                return Results.NoContent();
+            }).RequiredAdministrators("webapi")
+            .WithName("DeleteAdmin");
 
         // Map a dedicated branch for /health before HTTPS redirection so probes don't get 308 redirects
         app.Map("/health", branch =>

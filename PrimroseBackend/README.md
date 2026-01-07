@@ -67,6 +67,11 @@ sudo bash /srv/primrose/scripts/check_stack.sh
 ## API Testing (Postman)
 A Postman collection is provided in the root directory: `postman_collection.json`.
 - **JWT Auth**: Automatically handled for admin endpoints after a successful login.
+- **Admin Management**: Dedicated endpoints for CRUD operations on administrative users.
+    - `GET /api/admins`: List all administrators (Requires Admin/webapi role).
+    - `POST /api/admins`: Create a new administrator.
+    - `PUT /api/admins/{id}`: Update existing administrator (optional password update).
+    - `DELETE /api/admins/{id}`: Remove an administrator.
 - **TOTP Auth**: Required for public `/api/pages`. Provide a 6-digit code in the `X-App-Auth` header.
 - **Expiration**: If a token expires, the backend returns `X-Token-Expired: true` header. The Postman collection will automatically clear the token variable in this case.
 
