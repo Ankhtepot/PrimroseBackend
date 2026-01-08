@@ -119,6 +119,7 @@ app.UseCors("React");
 var enableHttpsRedirect = builder.Configuration["ENABLE_HTTPS_REDIRECT"];
 if (string.Equals(enableHttpsRedirect, "true", StringComparison.OrdinalIgnoreCase) || app.Environment.IsDevelopment())
 {
+    app.Logger.LogInformation("HTTPS redirection is enabled. To disable, set ENABLE_HTTPS_REDIRECT=false in configuration or environment.");
     app.UseHttpsRedirection();
 }
 else
