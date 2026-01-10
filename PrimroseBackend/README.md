@@ -65,15 +65,24 @@ sudo bash /srv/primrose/scripts/check_stack.sh
 ```
 
 ## API Testing (Postman)
-A Postman collection is provided in the root directory: `postman_collection.json`.
-- **JWT Auth**: Automatically handled for admin endpoints after a successful login.
-- **Admin Management**: Dedicated endpoints for CRUD operations on administrative users.
-    - `GET /api/admins`: List all administrators (Requires Admin/web_app role).
-    - `POST /api/admins`: Create a new administrator.
-    - `PUT /api/admins/{id}`: Update existing administrator (optional password update).
-    - `DELETE /api/admins/{id}`: Remove an administrator.
-- **TOTP Auth**: Required for public `/api/pages`. Provide a 6-digit code in the `X-App-Auth` header.
-- **Expiration**: If a token expires, the backend returns `X-Token-Expired: true` header. The Postman collection will automatically clear the token variable in this case.
+A Postman collection is provided in the root directory: `postman_collection.json` (HTTP) and `postman_https_collection.json` (HTTPS).
+
+- `postman_collection.json`: uses `{{baseUrl}}` variable and is convenient for local HTTP testing.
+- `postman_https_collection.json`: uses `{{host}}` collection variable and targets `https://{{host}}/...` endpoints. This is useful for testing the production HTTPS endpoints.
+
+How to import and use the HTTPS collection
+1. Open Postman (native app recommended).
+2. Import `postman_https_collection.json` (File > Import > Choose Files).
+3. Edit the collection variables or create an environment: set `host` to your server host (include port if not 443), `admin_username`, `admin_password`, and `health_token` as needed.
+4. For quick testing of self-signed certs you can temporarily disable SSL verification in Postman Settings > General > `SSL certificate verification` = OFF, but the recommended approach is to trust the server certificate on your OS (instructions below).
+
+Trusting the provided certificate (recommended)
+- Certificate file: `PrimroseBackend/primrose.crt` (included in repo).
+- Windows: run as Administrator and import into Trusted Root Certification Authorities (double-click the .crt and use the Certificate Import Wizard) or use `certutil -addstore -f "Root" "PrimroseBackend\\primrose.crt"`.
+- Debian/Ubuntu: `sudo cp PrimroseBackend/primrose.crt /usr/local/share/ca-certificates/primrose.crt && sudo update-ca-certificates`.
+- macOS: `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain PrimroseBackend/primrose.crt`.
+
+Important: the certificate CN/SAN must match the host you use in Postman (use the domain that matches the cert or add a hosts file entry mapping the domain to the VM IP).
 
 ## Summary For Hetzner Cloud
 
@@ -137,7 +146,6 @@ CID=$(docker ps --filter "name=primrose_primrose-backend" -q | head -n1)
 sudo docker exec -it $CID ls -l /run/secrets
 sudo docker exec -it $CID ls -l /home/ubuntu/.aspnet/DataProtection-Keys || true
 ```
-
 Optional: run checks from remote (PowerShell example)
 ```shell
 # TCP check
@@ -149,3 +157,32 @@ curl -v https://<VM_IP>/health --insecure
 # If HEALTH_TOKEN required:
 curl -v https://<VM_IP>/health -H "X-Health-Token: <token>" --insecure
 ```
+
+### Frontend (React / Vite) — running against HTTPS backend
+
+Goal: let your admin frontend (React + Vite) talk to the HTTPS backend during development.
+
+Options:
+
+1) Preferable: run the frontend locally (Vite dev server) and call the backend HTTPS domain (same domain used by cert)
+   - Make sure the cert is trusted in your development machine (import `PrimroseBackend/primrose.crt` into OS trust store as described above).
+   - In the React app, set the API base URL to the HTTPS host (e.g., https://primrose.example.com) so fetch requests go directly to HTTPS production-like endpoint.
+   - If using different host/port for frontend, enable CORS in the backend (the project already has CORS policies). Ensure the backend CORS policy allows the frontend origin.
+
+2) If you prefer local HTTPS for the dev server (serve the React app over HTTPS):
+   - Vite supports HTTPS in dev by passing `--https` and certificate files.
+   - Example (project root for frontend):
+     - Generate or reuse the same certificate/key pair (or use mkcert to create a local trusted cert for your chosen dev hostname).
+     - Start Vite with HTTPS: `vite --host --https --cert path/to/primrose.crt --key path/to/primrose.key` (or configure vite.config.js dev server https option).
+   - Browser treats front-end and backend as secure contexts; you still need to ensure the cert names match hostnames used.
+
+3) Quick workaround (less secure): disable browser SSL validation for testing or use the browser's ignore-certificate-error flag (not recommended).
+
+4) Using IDE / proxy:
+   - If you run the frontend from an IDE (VSCode/JetBrains), you can create a run configuration that starts Vite with the `--https` flags and points to cert/key files, or use an HTTP proxy that terminates TLS and forwards to local Vite.
+
+Practical checklist to run frontend dev against HTTPS backend
+- Import `PrimroseBackend/primrose.crt` into OS trust store.
+- Configure frontend API base URL to the HTTPS host used by the certificate (matching CN/SAN).
+- Ensure CORS policy on backend allows your frontend origin (edit AllowedOrigins / ALLOWED_ORIGINS env as needed).
+- If you need Vite served over HTTPS too, provide cert/key to Vite or use mkcert to generate a trusted local cert.
