@@ -241,7 +241,8 @@ for i in {1..30}; do
 done
 set -e
 
-HEALTH_URL="http://127.0.0.1:8080/health"
+# Use the internal-only health endpoint for deployment probes (this is called from the VM itself)
+HEALTH_URL="http://127.0.0.1:8080/health/internal"
 HEALTH_TOKEN=""
 if $SUDO docker secret ls --format '{{.Name}}' | grep -q '^primrose_health_token$'; then
   echo "[deploy] primrose_health_token secret present; ensure HEALTH_TOKEN available in .env or monitoring uses header"

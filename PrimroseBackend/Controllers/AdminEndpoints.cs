@@ -9,6 +9,7 @@ using PrimroseBackend.Data;
 using PrimroseBackend.Data.Dtos;
 using PrimroseBackend.Data.Models;
 using PrimroseBackend.Shared;
+using System.Net; // for IPAddress
 
 namespace PrimroseBackend.Controllers;
 
@@ -140,6 +141,21 @@ public static class AdminEndpoints
             }).RequiredAdministrators(ProjectConstants.Roles.WebApp)
             .WithName("DeleteAdmin");
 
+        // Internal health endpoint: only accessible from loopback or from configured IPs (INTERNAL_HEALTH_ALLOWED_IPS)
+        app.MapGet("/health/internal", (HttpContext ctx) =>
+        {
+            IConfiguration config = ctx.RequestServices.GetRequiredService<IConfiguration>();
+            string? allowed = Environment.GetEnvironmentVariable("INTERNAL_HEALTH_ALLOWED_IPS") ?? config["INTERNAL_HEALTH_ALLOWED_IPS"]; 
+
+            var remote = ctx.Connection.RemoteIpAddress;
+            if (!IsAllowedInternalIp(remote, allowed))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            return Results.Ok(new { status = "ok" });
+        }).AllowAnonymous();
+
         // Map a dedicated branch for /health before HTTPS redirection so probes don't get 308 redirects
         app.Map("/health", branch =>
         {
@@ -212,5 +228,31 @@ public static class AdminEndpoints
         });
 
         return app;
+
+        // Local helper for internal IP checks
+        static bool IsAllowedInternalIp(IPAddress? remoteIp, string? allowedList)
+        {
+            if (remoteIp == null) return false;
+            if (IPAddress.IsLoopback(remoteIp)) return true; // always allow loopback
+
+            if (string.IsNullOrWhiteSpace(allowedList))
+            {
+                // If no explicit allowed list is provided, do NOT allow non-loopback addresses
+                return false;
+            }
+
+            var parts = allowedList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            foreach (var part in parts)
+            {
+                if (IPAddress.TryParse(part, out var ip))
+                {
+                    if (ip.Equals(remoteIp)) return true;
+                }
+                // Note: CIDR ranges are intentionally not parsed here to keep this helper minimal and deterministic.
+            }
+
+            return false;
+        }
     }
 }
+

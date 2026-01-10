@@ -120,7 +120,11 @@ var enableHttpsRedirect = builder.Configuration["ENABLE_HTTPS_REDIRECT"];
 if (string.Equals(enableHttpsRedirect, "true", StringComparison.OrdinalIgnoreCase) || app.Environment.IsDevelopment())
 {
     app.Logger.LogInformation("HTTPS redirection is enabled. To disable, set ENABLE_HTTPS_REDIRECT=false in configuration or environment.");
-    app.UseHttpsRedirection();
+    // Apply HTTPS redirection for all requests except the internal health endpoint
+    app.UseWhen(context => !context.Request.Path.StartsWithSegments("/health/internal", StringComparison.OrdinalIgnoreCase), branch =>
+    {
+        branch.UseHttpsRedirection();
+    });
 }
 else
 {
