@@ -148,8 +148,27 @@ public static class AdminEndpoints
             string? allowed = Environment.GetEnvironmentVariable("INTERNAL_HEALTH_ALLOWED_IPS") ?? config["INTERNAL_HEALTH_ALLOWED_IPS"]; 
 
             var remote = ctx.Connection.RemoteIpAddress;
+
+            // Log remote IP for diagnostics
+            var logger = ctx.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("Health/Internal");
+            try
+            {
+                logger?.LogInformation("/health/internal requested from {Remote}", remote?.ToString() ?? "<null>");
+            }
+            catch
+            {
+                // ignore logging failures
+            }
+
             if (!IsAllowedInternalIp(remote, allowed))
             {
+                // Optionally return the remote IP in the response for debugging when explicitly enabled
+                string? debug = Environment.GetEnvironmentVariable("ENABLE_HEALTH_DEBUG") ?? config["ENABLE_HEALTH_DEBUG"];
+                if (string.Equals(debug, "true", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Results.Problem(detail: $"forbidden: remote={remote}", statusCode: StatusCodes.Status403Forbidden);
+                }
+
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
             }
 
@@ -235,23 +254,82 @@ public static class AdminEndpoints
             if (remoteIp == null) return false;
             if (IPAddress.IsLoopback(remoteIp)) return true; // always allow loopback
 
+            // Allow common private network ranges by default so NATed requests (Docker bridge, host publish) succeed
+            // IPv4: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+            if (remoteIp.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+            {
+                var bytes = remoteIp.GetAddressBytes();
+                if (bytes.Length >= 2)
+                {
+                    // 10.0.0.0/8
+                    if (bytes[0] == 10) return true;
+                    // 172.16.0.0/12
+                    if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) return true;
+                    // 192.168.0.0/16
+                    if (bytes[0] == 192 && bytes[1] == 168) return true;
+                }
+            }
+
+            // IPv6 Unique Local Addresses fc00::/7 (0xfc00/7 -> first byte 0xfc or 0xfd)
+            if (remoteIp.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+            {
+                var bytes = remoteIp.GetAddressBytes();
+                if (bytes.Length > 0 && (bytes[0] & 0xfe) == 0xfc) return true;
+            }
+
             if (string.IsNullOrWhiteSpace(allowedList))
             {
-                // If no explicit allowed list is provided, do NOT allow non-loopback addresses
+                // If no explicit allowed list is provided, do NOT allow other non-private/non-loopback addresses
                 return false;
             }
 
             var parts = allowedList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             foreach (var part in parts)
             {
+                // support exact IP match
                 if (IPAddress.TryParse(part, out var ip))
                 {
                     if (ip.Equals(remoteIp)) return true;
                 }
-                // Note: CIDR ranges are intentionally not parsed here to keep this helper minimal and deterministic.
+
+                // support simple CIDR notation (e.g., 172.18.0.0/16)
+                if (part.Contains('/'))
+                {
+                    try
+                    {
+                        var seg = part.Split('/');
+                        if (seg.Length == 2 && IPAddress.TryParse(seg[0], out var network) && int.TryParse(seg[1], out var prefix))
+                        {
+                            if (IpInCidr(remoteIp, network, prefix)) return true;
+                        }
+                    }
+                    catch
+                    {
+                        // ignore parse errors and continue
+                    }
+                }
             }
 
             return false;
+
+            static bool IpInCidr(IPAddress? address, IPAddress network, int prefix)
+            {
+                if (address == null) return false;
+                var addrBytes = address.GetAddressBytes();
+                var netBytes = network.GetAddressBytes();
+                if (addrBytes.Length != netBytes.Length) return false; // different families
+
+                int bits = prefix;
+                for (int i = 0; i < addrBytes.Length; i++)
+                {
+                    int take = Math.Min(8, bits);
+                    if (take == 0) break;
+                    byte mask = (byte)(0xFF << (8 - take));
+                    if ((addrBytes[i] & mask) != (netBytes[i] & mask)) return false;
+                    bits -= take;
+                }
+                return true;
+            }
         }
     }
 }

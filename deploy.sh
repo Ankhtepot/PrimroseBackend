@@ -259,21 +259,63 @@ if [ -f "$ENV_PATH" ]; then
 fi
 
 echo "[deploy] Performing health check against $HEALTH_URL"
-for i in {1..20}; do
-  if [ -n "$HEALTH_TOKEN" ]; then
-    HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "X-Health-Token: $HEALTH_TOKEN" "$HEALTH_URL") || HTTP_STATUS=000
-  else
-    HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL") || HTTP_STATUS=000
+
+# First, wait briefly for the backend port to accept TCP connections (helps avoid many immediate curl errors)
+PORT_WAIT_MAX=10
+for p in $(seq 1 $PORT_WAIT_MAX); do
+  if (echo > /dev/tcp/127.0.0.1/8080) >/dev/null 2>&1; then
+    echo "[deploy] Port 127.0.0.1:8080 open (attempt $p)"
+    break
   fi
+  echo "[deploy] Waiting for port 127.0.0.1:8080 to open (attempt $p/$PORT_WAIT_MAX)..."
+  sleep 1
+done
+
+# Prepare temp files for capturing headers and body
+TMP_HDR=$(mktemp)
+TMP_BODY=$(mktemp)
+trap 'rm -f "$TMP_HDR" "$TMP_BODY"' EXIT
+
+# Perform HTTP health checks; on failure capture headers/body for debugging
+LAST_STATUS="000"
+for i in $(seq 1 20); do
+  if [ -n "$HEALTH_TOKEN" ]; then
+    HTTP_STATUS=$(curl -sS -w "%{http_code}" -o "$TMP_BODY" -D "$TMP_HDR" -H "X-Health-Token: $HEALTH_TOKEN" "$HEALTH_URL" 2>/dev/null) || HTTP_STATUS=000
+  else
+    HTTP_STATUS=$(curl -sS -w "%{http_code}" -o "$TMP_BODY" -D "$TMP_HDR" "$HEALTH_URL" 2>/dev/null) || HTTP_STATUS=000
+  fi
+
   echo "[deploy] Health check attempt $i -> status $HTTP_STATUS"
+
   if [ "$HTTP_STATUS" = "200" ]; then
     echo "[deploy] Health check passed"
+    if [ "${DEBUG_HEALTH:-}" = "true" ]; then
+      echo "[deploy] Health response headers:"
+      sed -n '1,200p' "$TMP_HDR" || true
+      echo "[deploy] Health response body:"
+      sed -n '1,200p' "$TMP_BODY" || true
+    fi
     exit 0
+  else
+    # Print per-attempt diagnostics only when DEBUG_HEALTH=true to avoid noisy logs
+    if [ "${DEBUG_HEALTH:-}" = "true" ]; then
+      echo "[deploy] Health response headers (attempt $i):"
+      sed -n '1,200p' "$TMP_HDR" || true
+      echo "[deploy] Health response body (attempt $i):"
+      sed -n '1,200p' "$TMP_BODY" || true
+    fi
   fi
+
+  LAST_STATUS="$HTTP_STATUS"
   sleep 3
 done
 
-echo "[deploy] Health check failed after retries."
+echo "[deploy] Health check failed after retries. Last status: $LAST_STATUS"
+echo "[deploy] Last health response headers:"
+sed -n '1,200p' "$TMP_HDR" || true
+echo "[deploy] Last health response body:"
+sed -n '1,200p' "$TMP_BODY" || true
+
 echo "[deploy] --- Diagnostics ---"
 $SUDO docker stack services "$STACK_NAME"
 $SUDO docker service ps "$SERVICE_NAME" --no-trunc
