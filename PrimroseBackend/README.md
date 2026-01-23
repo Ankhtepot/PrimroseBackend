@@ -1,4 +1,36 @@
-﻿Pull latest:
+﻿## 🚨 Cloudflare Tunnel Troubleshooting
+
+If you're getting **503 errors** when accessing `https://api.primrose.work`:
+
+### Quick Fix (Copy-paste this on server):
+```bash
+cd /srv/primrose
+bash scripts/check-tunnel.sh
+```
+
+### Complete Auto-Fix Script:
+See `../FIX-NOW.md` - contains a complete copy-paste script that will:
+- Diagnose the issue
+- Show your health token
+- Test everything
+- Auto-fix common problems
+
+### Troubleshooting Guides:
+- 📄 **`../FIX-NOW.md`** - Automated fix script (recommended)
+- 📄 **`../QUICK-FIX-503.md`** - Step-by-step manual fixes
+- 📄 **`../CLOUDFLARE-SETUP.md`** - Complete reference guide
+- 📄 **`../CLOUDFLARE_TUNNEL_TROUBLESHOOTING.md`** - Detailed troubleshooting
+
+### Common Issue: Config Location
+Your Cloudflare tunnel config is at: **`/root/.cloudflared/config.yml`**
+
+Must point to: `http://localhost:8080` (not https!)
+
+---
+
+## Summary For Hetzner Cloud
+
+Pull latest:
 ```shell
 git pull origin master
 ```
@@ -84,9 +116,35 @@ Trusting the provided certificate (recommended)
 
 Important: the certificate CN/SAN must match the host you use in Postman (use the domain that matches the cert or add a hosts file entry mapping the domain to the VM IP).
 
+## Cloudflare Tunnel Setup
+
+If you're using Cloudflare Tunnel to expose your API:
+
+1. **Tunnel Configuration**: Point your tunnel to `http://localhost:8080` (NOT https)
+2. **Health Endpoint**: The `/health` endpoint requires the `X-Health-Token` header
+3. **Token**: Get your health token from `/srv/primrose/PrimroseBackend/.env`
+
+Example Cloudflare Tunnel config (`/etc/cloudflared/config.yml`):
+```yaml
+tunnel: <your-tunnel-id>
+credentials-file: /path/to/credentials.json
+
+ingress:
+  - hostname: api.primrose.work
+    service: http://localhost:8080
+  - service: http_status:404
+```
+
+Test health endpoint with token:
+```bash
+curl https://api.primrose.work/health -H "X-Health-Token: YOUR_TOKEN"
+```
+
+For detailed troubleshooting, see `CLOUDFLARE_TUNNEL_TROUBLESHOOTING.md` in the repo root.
+
 ## Summary For Hetzner Cloud
 
-### Commands you’ll use frequently (copy/paste)
+### Commands you'll use frequently (copy/paste)
 
 Create or re-create secrets from the server's PrimroseBackend/.env (the deploy script will try to auto-create missing secrets):
 ```shell
