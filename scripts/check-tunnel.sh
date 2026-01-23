@@ -17,7 +17,14 @@ echo ""
 
 # Check Cloudflare tunnel
 echo "3. Cloudflare Tunnel Status:"
-sudo systemctl status cloudflared --no-pager | grep "Active:" || echo "   Service not found!"
+if sudo systemctl status cloudflared --no-pager | grep "Active:" 2>/dev/null; then
+    echo "   Service is running"
+elif pgrep -f cloudflared >/dev/null 2>&1; then
+    echo "   Process is running (not as systemd service)"
+    ps aux | grep cloudflared | grep -v grep
+else
+    echo "   Cloudflare tunnel not running!"
+fi
 echo ""
 
 # Show config
@@ -34,10 +41,10 @@ echo "5. Local Health Check:"
 HEALTH_TOKEN=$(grep -E "^(HEALTH_TOKEN|PRIMROSE_HEALTH_TOKEN)=" /srv/primrose/PrimroseBackend/.env 2>/dev/null | cut -d= -f2 | tr -d '\r\n' | head -n1)
 if [ -n "$HEALTH_TOKEN" ]; then
     echo "   Testing with token..."
-    curl -s http://localhost:8080/health -H "X-Health-Token: $HEALTH_TOKEN" || echo "   Failed!"
+    curl -s --max-time 5 http://localhost:8080/health -H "X-Health-Token: $HEALTH_TOKEN" || echo "   Failed or timed out!"
 else
     echo "   No health token found, testing without..."
-    curl -s http://localhost:8080/health || echo "   Failed!"
+    curl -s --max-time 5 http://localhost:8080/health || echo "   Failed or timed out!"
 fi
 echo ""
 echo ""
